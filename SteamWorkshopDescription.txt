@@ -1,0 +1,2 @@
+[h1]Fretlib[/h1]
+A library that implements helper functions for Whiskerwood mods. This mod doesn't do anything on its own.
