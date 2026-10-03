@@ -1,6 +1,7 @@
 {
     "Name" : "Fretlib",
     "Description" : "Blueprint Component Library for Whiskerwood mods",
-    "Version" : "0.1.2.0-Patch#24",
-    "CreatedBy" : "Fretmute"
+    "Version" : "0.2.0.0+Patch#29",
+    "CreatedBy" : "Fretmute",
+    "EngineVersion": "5.8"
 }
