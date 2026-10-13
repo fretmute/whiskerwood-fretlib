@@ -1,0 +1,62 @@
+blueprint BPL_FL_HudAction : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_HudAction
+use /Game/Mods/Fretlib/Lib_1
+
+// Hire and fire workers in a building without the player selecting it, through the map's BP_FL_HudRouter.
+// Rules from the research: never hire an employed whisker (he stays listed in his old slot as a saved "ghost": fire him there
+// first); hiring into an occupied required slot fires the optional workers too (re-hire them; see the staffing mod's cascade
+// restore). Call from onLoadingFinished on.
+// Design: workflows/AgentEmploymentAutomation/docs/BlueprintClassDesign.md §4.6, §7b.
+
+category "Fretlib|HudAction"
+
+// The map's HUD router (Fretlib's BP_MapLoad).
+//
+// In:  none
+// Out: Return - the router, or none before Fretlib's BP_MapLoad has spawned (or without Fretlib).
+fn GetRouter() -> BP_FL_HudRouter {
+    return cast(GameplayStatics.GetActorOfClass(BP_FL_HudRouter), BP_FL_HudRouter)
+}
+
+// Sends any HUD action to a building.
+//
+// In:  Building - the target building.
+//      Action - the HUD action name.
+//      ParamInt - the action's integer parameter.
+//      ParamFloat - the action's float parameter.
+// Out: Return - true if dispatched.
+//      Why - "dispatched", or why not ("no router", or the router's reason).
+fn Dispatch(Building: Actor, Action: string, ParamInt: int, ParamFloat: float, out Why: string) -> bool {
+    let router = GetRouter()
+    if router == none {
+        Why = "no router"
+        return false
+    }
+    let r = router.DispatchHudAction(Building, Action, ParamInt, ParamFloat)
+    Why = r.Why
+    return r.ReturnValue
+}
+
+// Hires a whisker into a slot. He must be unemployed; check before calling.
+//
+// In:  Building - the workplace.
+//      AgentID - the whisker's agent ID.
+//      SlotIndex - the 0-based slot index.
+// Out: Return - true if dispatched (verify the slot afterwards).
+//      Why - "dispatched", or why not.
+fn HireIntoSlot(Building: Actor, AgentID: int, SlotIndex: int, out Why: string) -> bool {
+    let r = Dispatch(Building, "hireWorkerForSlot", AgentID, float(SlotIndex))
+    Why = r.Why
+    return r.ReturnValue
+}
+
+// Fires a whisker from a building. Clears his slot there and his workplace.
+//
+// In:  Building - the workplace he is listed in.
+//      AgentID - the whisker's agent ID.
+// Out: Return - true if dispatched (verify the slot afterwards).
+//      Why - "dispatched", or why not.
+fn FireWorker(Building: Actor, AgentID: int, out Why: string) -> bool {
+    let r = Dispatch(Building, "fireSpecificWorker", AgentID, 0.0)
+    Why = r.Why
+    return r.ReturnValue
+}

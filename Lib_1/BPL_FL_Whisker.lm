@@ -20,6 +20,28 @@ pure fn GetAgentId(Agent: Prototype_Agent) -> int {
     return Agent.m_characteristics.ID
 }
 
+// The whisker's name, as shown in game.
+//
+// In:  Agent - the whisker.
+// Out: Return - his name, or "" for none.
+pure fn GetAgentName(Agent: Prototype_Agent) -> string {
+    if Agent == none {
+        return ""
+    }
+    return Agent.m_characteristics.agentName
+}
+
+// The whisker's name and ID for log lines, e.g. "Bramble (#42)"; the ID isn't visible in game, the name is.
+//
+// In:  Agent - the whisker.
+// Out: Return - "Name (#ID)", or "none" for none.
+pure fn GetAgentLabel(Agent: Prototype_Agent) -> string {
+    if Agent == none {
+        return "none"
+    }
+    return Agent.m_characteristics.agentName + " (#" + string(Agent.m_characteristics.ID) + ")"
+}
+
 // Whether the whisker has a trait.
 //
 // In:  Agent - the whisker.

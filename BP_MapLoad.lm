@@ -1,11 +1,11 @@
-blueprint BP_MapLoad : Actor at /Game/Mods/Fretlib/BP_MapLoad
+blueprint BP_MapLoad : BP_FL_HudRouter at /Game/Mods/Fretlib/BP_MapLoad
 use /Game/Mods/Fretlib/Lib_1
 
-// Spawned by the game on every map load (folder order: after mods whose folders sort before Fretlib).
-// Writes the library version once per load, for bug reports. Later a child of BP_FL_HudRouter (LibraryInventory §4).
+// Spawned by the game on every map load (folder order: after mods whose folders sort before Fretlib). It is the map's
+// shared HUD router (parent BP_FL_HudRouter), and writes the library version once per load, for bug reports.
 
 // Writes "Lib_1 r<N> loaded" as a ForceLog line.
 on ReceiveBeginPlay {
     let logger = BPL_FL_Log.Configure("Fretlib", E_FL_LogLevel.Warning)
-    BPL_FL_Log.ForceLog(logger, "Lib_1 r" + string(BPL_FL_Log.GetLibVersion()) + " loaded")
+    BPL_FL_Log.ForceLog(logger, "Lib_1 r" + string(BPL_FL_Log.GetLibVersion()) + " loaded (HUD router ready)")
 }

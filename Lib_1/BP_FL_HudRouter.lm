@@ -1,0 +1,55 @@
+blueprint BP_FL_HudRouter : Actor at /Game/Mods/Fretlib/Lib_1/BP_FL_HudRouter
+use /Game/Mods/Fretlib/Lib_1
+
+// Sends HUD actions (hire, fire, ...) for a building without the player selecting it: the background route found by the
+// AgentEmploymentAutomation research. One shared instance per map: Fretlib's BP_MapLoad is a child of this class.
+// Callers use BPL_FL_HudAction, which finds this actor. Use it from onLoadingFinished on (spawn order isn't guaranteed).
+// Rules (BlueprintClassDesign §7b): save -> set -> act -> restore inside one synchronous call; restore whatever widget was
+// there; use our own hidden widget, never another mod's.
+// Design: workflows/CommonLibrary/docs/LibraryInventory.md §4; workflows/AgentEmploymentAutomation/docs/InitialFindings.md.
+
+category "Fretlib|HudAction"
+
+// Our hidden industry details widget, never added to the viewport; created on first use. Works for every workplace type.
+var HiddenDetails: Details_Industry_BP
+
+// Sends one HUD action to a building through the hidden details widget and the player controller.
+// The game applies it synchronously. Unknown action names are ignored silently by the game.
+//
+// In:  Building - the target building.
+//      Action - the HUD action name, e.g. hireWorkerForSlot or fireSpecificWorker.
+//      ParamInt - the action's integer parameter (an agent ID for hire/fire).
+//      ParamFloat - the action's float parameter (the slot index for hireWorkerForSlot).
+// Out: Return - true if the action was dispatched.
+//      Why - "dispatched", or why not: "no building", "no SelectTool", "no PlayerController_Play", "widget not created".
+fn DispatchHudAction(Building: Actor, Action: string, ParamInt: int, ParamFloat: float, out Why: string) -> bool {
+    if Building == none {
+        Why = "no building"
+        return false
+    }
+    let tool = cast(GameplayStatics.GetActorOfClass(SelectTool), SelectTool)
+    if tool == none {
+        Why = "no SelectTool"
+        return false
+    }
+    let controller = cast(GameplayStatics.GetPlayerController(0), PlayerController_Play)
+    if controller == none {
+        Why = "no PlayerController_Play"
+        return false
+    }
+    if HiddenDetails == none {
+        HiddenDetails = create_widget(Details_Industry_BP)
+    }
+    if HiddenDetails == none {
+        Why = "widget not created"
+        return false
+    }
+    let saved = tool.m_activeDetailWidget
+    HiddenDetails.Context = Building
+    tool.m_activeDetailWidget = HiddenDetails
+    controller.HandleHudAction(HudAction(action: Action, paramInt: ParamInt, paramFloat: ParamFloat))
+    tool.m_activeDetailWidget = saved
+    HiddenDetails.Context = none
+    Why = "dispatched"
+    return true
+}
