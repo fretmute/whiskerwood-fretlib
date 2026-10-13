@@ -1,0 +1,14 @@
+// Log levels for BPL_FL_Log. Order matters: a line is written when its level >= the logger's MinLevel.
+// Frozen for Lib_1 (workflows/CommonLibrary/docs/LoggingDesign.md).
+enum E_FL_LogLevel at /Game/Mods/Fretlib/Lib_1/E_FL_LogLevel {
+    // Detail for development.
+    Debug
+    // Normal progress messages.
+    Info
+    // Something unexpected that the mod handled.
+    Warning
+    // Something failed.
+    Error
+    // Always written, whatever the logger's MinLevel.
+    ForceLog
+}

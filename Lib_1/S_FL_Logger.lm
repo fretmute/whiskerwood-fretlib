@@ -1,0 +1,8 @@
+// A configured logger for BPL_FL_Log. Make one with BPL_FL_Log.Configure and keep it in a variable.
+// Frozen for Lib_1: a field change means Lib_2.
+struct S_FL_Logger at /Game/Mods/Fretlib/Lib_1/S_FL_Logger {
+    // Shown in every line as [ModName].
+    ModName: string
+    // Lines below this level are dropped. ForceLog = only forced lines.
+    MinLevel: E_FL_LogLevel = E_FL_LogLevel.Debug
+}

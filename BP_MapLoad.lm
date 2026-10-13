@@ -1,0 +1,10 @@
+blueprint BP_MapLoad : Actor at /Game/Mods/Fretlib/BP_MapLoad
+use /Game/Mods/Fretlib/Lib_1
+
+// Spawned by the game on every map load. Writes the library version once per load, for bug reports.
+// Later: becomes a child of BP_FL_HudRouter (the shared actor; LibraryInventory §4).
+
+on ReceiveBeginPlay {
+    let logger = BPL_FL_Log.Configure("Fretlib", E_FL_LogLevel.Warning)
+    BPL_FL_Log.ForceLog(logger, "Lib_1 r" + string(BPL_FL_Log.GetLibVersion()) + " loaded")
+}

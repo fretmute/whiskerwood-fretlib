@@ -1,0 +1,120 @@
+blueprint BPL_FL_Log : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_Log
+
+// Logging to %localappdata%\Whiskerwood\Saved\Logs\modlog.txt, one line per call:
+//   [2026-10-11 21:58:12] [ModName] [Level] message
+// Configure a logger once (mod name + minimum level), keep it, and pass it to every call.
+// Design: workflows/CommonLibrary/docs/LoggingDesign.md.
+
+category "Fretlib|Log"
+
+// ---- version ----
+
+// Lib_1 release number. 0 from a caller means Fretlib is missing (every call to a missing library returns zero).
+pure fn GetLibVersion() -> int {
+    return 1
+}
+
+// ---- configuration ----
+
+// A logger for ModName that writes lines at MinLevel and above.
+pure fn Configure(ModName: string, MinLevel: E_FL_LogLevel) -> S_FL_Logger {
+    return S_FL_Logger(ModName: ModName, MinLevel: MinLevel)
+}
+
+// "Debug", "Info", "Warning", "Error" or "ForceLog" (any case) as a level; anything else gives Fallback.
+// For a log level read from a mod option or a FileConfig value.
+pure fn ParseLevel(Value: string, Fallback: E_FL_LogLevel) -> E_FL_LogLevel {
+    let v = KismetStringLibrary.ToLower(Value)
+    return match v {
+        "debug" { E_FL_LogLevel.Debug }
+        "info" { E_FL_LogLevel.Info }
+        "warning" { E_FL_LogLevel.Warning }
+        "error" { E_FL_LogLevel.Error }
+        "forcelog" { E_FL_LogLevel.ForceLog }
+        else { Fallback }
+    }
+}
+
+// The level's name as written in a line.
+pure fn LevelName(Level: E_FL_LogLevel) -> string {
+    return match Level {
+        E_FL_LogLevel.Debug { "Debug" }
+        E_FL_LogLevel.Info { "Info" }
+        E_FL_LogLevel.Warning { "Warning" }
+        E_FL_LogLevel.Error { "Error" }
+        else { "ForceLog" }
+    }
+}
+
+// ---- formatting ----
+
+pure fn Pad2(n: int) -> string {
+    return if n < 10 { "0" + string(n) } else { string(n) }
+}
+
+// Local time as [YYYY-MM-DD HH:MM:SS].
+pure fn Timestamp() -> string {
+    let t = KismetMathLibrary.BreakDateTime(KismetMathLibrary.Now())
+    return "[" + string(t.Year) + "-" + Pad2(t.Month) + "-" + Pad2(t.Day) + " " + Pad2(t.Hour) + ":" + Pad2(t.Minute) + ":" + Pad2(t.Second) + "]"
+}
+
+// The "[time] [mod] [level]" part of a line, for callers that also print elsewhere.
+pure fn FormatPrefix(Logger: S_FL_Logger, Level: E_FL_LogLevel) -> string {
+    let modName = if Logger.ModName == "" { "?" } else { Logger.ModName }
+    return Timestamp() + " [" + modName + "] [" + LevelName(Level) + "]"
+}
+
+// Whether a line at Level would be written. Lets a caller skip building an expensive message.
+pure fn ShouldLog(Logger: S_FL_Logger, Level: E_FL_LogLevel) -> bool {
+    return int(Level) >= int(Logger.MinLevel)
+}
+
+// ---- writing ----
+
+// Writes Msg at Level if Level >= the logger's MinLevel.
+fn Log(Logger: S_FL_Logger, Level: E_FL_LogLevel, Msg: string) {
+    if ShouldLog(Logger, Level) {
+        ModAPI.GetModAPI().LogMessage(FormatPrefix(Logger, Level) + " " + Msg, false)
+    }
+}
+
+fn Debug(Logger: S_FL_Logger, Msg: string) {
+    Log(Logger, E_FL_LogLevel.Debug, Msg)
+}
+
+fn Info(Logger: S_FL_Logger, Msg: string) {
+    Log(Logger, E_FL_LogLevel.Info, Msg)
+}
+
+fn Warning(Logger: S_FL_Logger, Msg: string) {
+    Log(Logger, E_FL_LogLevel.Warning, Msg)
+}
+
+fn Error(Logger: S_FL_Logger, Msg: string) {
+    Log(Logger, E_FL_LogLevel.Error, Msg)
+}
+
+// Always written.
+fn ForceLog(Logger: S_FL_Logger, Msg: string) {
+    Log(Logger, E_FL_LogLevel.ForceLog, Msg)
+}
+
+// One line per item, each with the full prefix.
+fn LogStrings(Logger: S_FL_Logger, Level: E_FL_LogLevel, Items: array<string>) {
+    if !ShouldLog(Logger, Level) {
+        return
+    }
+    for item in Items {
+        Log(Logger, Level, item)
+    }
+}
+
+// One line per item, each with the full prefix.
+fn LogNames(Logger: S_FL_Logger, Level: E_FL_LogLevel, Items: array<name>) {
+    if !ShouldLog(Logger, Level) {
+        return
+    }
+    for item in Items {
+        Log(Logger, Level, string(item))
+    }
+}
