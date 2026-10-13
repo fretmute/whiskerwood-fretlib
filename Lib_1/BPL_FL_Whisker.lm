@@ -1,0 +1,184 @@
+blueprint BPL_FL_Whisker : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_Whisker
+
+// Read and write helpers for whiskers (Prototype_Agent), so callers never touch the game's nested structs directly.
+// Ported from WhiskerTraits' BPL_WhiskerState (2026-10-12). Writes need the WhiskerwoodStubAccess editor plugin when this
+// library is built (the fields are read-only in the stubs); callers don't need it.
+// Design: workflows/CommonLibrary/docs/LibraryInventory.md §2; behaviour notes: workflows/WhiskerTraits/docs/InitialFindings.md.
+
+category "Fretlib|Whisker"
+
+// ---- reads ----
+
+// The whisker's ID.
+//
+// In:  Agent - the whisker.
+// Out: Return - his agent ID, or -1 for none.
+pure fn GetAgentId(Agent: Prototype_Agent) -> int {
+    if Agent == none {
+        return -1
+    }
+    return Agent.m_characteristics.ID
+}
+
+// Whether the whisker has a trait.
+//
+// In:  Agent - the whisker.
+//      Trait - the trait key, e.g. nosmell (case-sensitive).
+// Out: Return - true if the trait is in his trait list.
+pure fn HasTrait(Agent: Prototype_Agent, Trait: name) -> bool {
+    return Agent.m_characteristics.traits.Contains(Trait)
+}
+
+// How many items the whisker is carrying: the sum over every resource in his load.
+// The load is the reliable hauling signal (ActionDescProbe); there is no change event, so poll it.
+//
+// In:  Agent - the whisker.
+// Out: Return - items carried, 0 when empty-handed.
+pure fn GetCarriedItemCount(Agent: Prototype_Agent) -> int {
+    let total = 0
+    for resource, count in Agent.m_currentlyRenderedResources.counts {
+        total = total + count
+    }
+    return total
+}
+
+// The whisker's load, resource by resource.
+//
+// In:  Agent - the whisker.
+// Out: Return - resource key -> count; empty when empty-handed.
+pure fn GetCarriedResources(Agent: Prototype_Agent) -> map<name, int> {
+    return Agent.m_currentlyRenderedResources.counts
+}
+
+// Reads a modifier entry from the whisker's active modifiers.
+//
+// In:  Agent - the whisker.
+//      Key - the modifier key, e.g. mod.whiskertraits.hauler.
+// Out: Return - true if the whisker has the entry.
+//      Productivity - its productivity value (0 if absent).
+//      Speed - its speed value, percent (0 if absent).
+//      Carry - its carry capacity value (0 if absent).
+pure fn GetModifier(Agent: Prototype_Agent, Key: name, out Productivity: int, out Speed: int, out Carry: int) -> bool {
+    let entry = Agent.m_state.modifierState.activeModifiers_all.Find(Key)
+    if entry.ReturnValue {
+        Productivity = entry.Value.productivityMod
+        Speed = entry.Value.speedMod
+        Carry = entry.Value.carryMod
+    }
+    return entry.ReturnValue
+}
+
+// The prefab key of the whisker's workplace.
+//
+// In:  Agent - the whisker.
+// Out: Return - the workplace's prefab key (e.g. bakery), or None when unemployed.
+pure fn GetWorkplaceKey(Agent: Prototype_Agent) -> name {
+    let workplace = Agent.GetWorkplace()
+    if workplace == none {
+        return "None"
+    }
+    return workplace.PrefabInfo.prefabKey
+}
+
+// The active recipe of the whisker's workplace.
+//
+// In:  Agent - the whisker.
+// Out: Return - the recipe key, or None when unemployed or the workplace has no Industry component.
+pure fn GetActiveRecipe(Agent: Prototype_Agent) -> name {
+    let workplace = Agent.GetWorkplace()
+    if workplace == none {
+        return "None"
+    }
+    let industry = cast(workplace.GetComponentByClass(Industry), Industry)
+    if industry == none {
+        return "None"
+    }
+    return industry.m_activeRecipeKey
+}
+
+// Whether the whisker's current action starts with a prefix, ignoring case.
+// The action is the UI key (currentActionDesc), e.g. "baking" or "whiskerActivity.seekResource".
+//
+// In:  Agent - the whisker.
+//      Prefix - the start to look for.
+// Out: Return - true if the action starts with Prefix.
+pure fn ActionIs(Agent: Prototype_Agent, Prefix: string) -> bool {
+    return KismetStringLibrary.StartsWith(Agent.m_state.currentActionDesc, Prefix, ESearchCase.IgnoreCase)
+}
+
+// Whether the whisker can still be read and changed: valid, not a dummy, not being removed.
+//
+// In:  Agent - the whisker, or none.
+// Out: Return - true if he is live.
+pure fn IsLive(Agent: Prototype_Agent) -> bool {
+    if Agent == none {
+        return false
+    }
+    return !Agent.m_state.isDummy && !Agent.m_state.pendingRemoval
+}
+
+// ---- writes ----
+
+// Adds or replaces a modifier entry on the whisker. Icon and display text come from the game's modifier table when it has a
+// row for the key (e.g. from a mod's CustomModifiers.txt). The entry always expires, so the morning clear removes leftovers
+// if the mod is removed. The game sums it into derived_* only at its next recompute: pair it with AdjustDerived.
+//
+// In:  Agent - the whisker.
+//      Key - the modifier key.
+//      Productivity - productivity bonus.
+//      Speed - speed bonus, percent.
+//      Carry - carry capacity bonus.
+// Out: none
+fn SetDynamicModifier(Agent: Prototype_Agent, Key: name, Productivity: int, Speed: int, Carry: int) {
+    let row = ArcoGameInstance.GetAgentModifier(Agent, Key)
+    let modifier = row.out_modifier
+    if !row.ReturnValue {
+        modifier = AgentModifier(DisplayName: Key, Category: "World", hiddenMod: false)
+    }
+    modifier.productivityMod = Productivity
+    modifier.speedMod = Speed
+    modifier.carryMod = Carry
+    modifier.expires = true
+    Agent.m_state.modifierState.activeModifiers_all.Add(Key, modifier)
+}
+
+// Removes a modifier entry from the whisker. Pair it with AdjustDerived to take the effect away at once.
+//
+// In:  Agent - the whisker.
+//      Key - the modifier key.
+// Out: Return - true if the entry was there.
+fn RemoveModifier(Agent: Prototype_Agent, Key: name) -> bool {
+    return Agent.m_state.modifierState.activeModifiers_all.Remove(Key)
+}
+
+// Changes the whisker's derived productivity, speed and carry capacity at once. The game folds modifiers into derived_*
+// only on its own events (TraitLifecycleProbe), so every modifier change is paired with the same change here.
+// Speed is known to take effect immediately (SpeedProbe); carry capacity hasn't been tested in game yet.
+//
+// In:  Agent - the whisker.
+//      ProductivityDelta - added to derived_productivity (negative to remove).
+//      SpeedDelta - added to derived_speedPercent, percent (negative to remove).
+//      CarryDelta - added to derived_carryCapacity (negative to remove).
+// Out: none
+fn AdjustDerived(Agent: Prototype_Agent, ProductivityDelta: float, SpeedDelta: float, CarryDelta: int) {
+    Agent.m_state.derived_productivity = Agent.m_state.derived_productivity + ProductivityDelta
+    Agent.m_state.derived_speedPercent = Agent.m_state.derived_speedPercent + SpeedDelta
+    Agent.m_state.derived_carryCapacity = Agent.m_state.derived_carryCapacity + CarryDelta
+}
+
+// Holds thought cooldowns so the matching thoughts can't fire (as the nosmell trait does for pollution).
+// Cooldowns count down 1 per game second; call again before they run out.
+//
+// In:  Agent - the whisker.
+//      PollutionSeconds - light and heavy pollution cooldowns, game seconds; 0 or less leaves them alone.
+//      HardLaborSeconds - hard-labor cooldown, game seconds; 0 or less leaves it alone.
+// Out: none
+fn HoldThoughtCooldowns(Agent: Prototype_Agent, PollutionSeconds: float, HardLaborSeconds: float) {
+    if PollutionSeconds > 0.0 {
+        Agent.m_state.lightPollutionThoughtCooldown = PollutionSeconds
+        Agent.m_state.heavyPollutionThoughtCooldown = PollutionSeconds
+    }
+    if HardLaborSeconds > 0.0 {
+        Agent.m_state.hardLaborCooldown = HardLaborSeconds
+    }
+}

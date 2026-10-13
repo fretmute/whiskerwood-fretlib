@@ -1,0 +1,182 @@
+blueprint BPL_FL_Workplace : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_Workplace
+
+// Read helpers for workplaces: a building's worker component, its worker slots, IDs and keys. No side effects.
+// The generic part of AutomatedStaffingManagement's BPL_WorkplaceInfo, written in Loom (2026-10-12). Mod policy (categories,
+// overrides, recipe pollution) stays in the mods.
+// Design: workflows/CommonLibrary/docs/LibraryInventory.md §2; component list: workflows/AgentEmploymentAutomation/docs/BlueprintClassDesign.md §5.
+
+category "Fretlib|Workplace"
+
+// ---- components ----
+
+// Finds the building's worker component. Checked in this order: Industry, ResearchLab, HarvestingCamp, FarmBuilding,
+// TerraformCamp, LogisticsHub, PackageDelivery (firetender, supplier), FoodDistributor (cafe, eatery), ResourceBuilding
+// (warehouses; returned last so callers can exclude it: some have slots but no worker UI).
+//
+// In:  Building - the building actor.
+// Out: Return - its worker component, or none when it has none.
+pure fn GetWorkerComponent(Building: Actor) -> ActorComponent {
+    if Building == none {
+        return none
+    }
+    let industry = Building.GetComponentByClass(Industry)
+    if industry != none {
+        return industry
+    }
+    let lab = Building.GetComponentByClass(ResearchLab)
+    if lab != none {
+        return lab
+    }
+    let camp = Building.GetComponentByClass(HarvestingCamp)
+    if camp != none {
+        return camp
+    }
+    let farm = Building.GetComponentByClass(FarmBuilding)
+    if farm != none {
+        return farm
+    }
+    let terraform = Building.GetComponentByClass(TerraformCamp)
+    if terraform != none {
+        return terraform
+    }
+    let hub = Building.GetComponentByClass(/Script/ProjectArco.LogisticsHub)
+    if hub != none {
+        return hub
+    }
+    let delivery = Building.GetComponentByClass(PackageDelivery)
+    if delivery != none {
+        return delivery
+    }
+    let food = Building.GetComponentByClass(FoodDistributor)
+    if food != none {
+        return food
+    }
+    let storage = Building.GetComponentByClass(ResourceBuilding)
+    if storage != none {
+        return storage
+    }
+    return none
+}
+
+// Reads the worker assignment (slots and flags) from a worker component of any of the supported classes.
+//
+// In:  Component - a worker component (from GetWorkerComponent).
+// Out: Return - its m_workers; empty when Found is false.
+//      Found - false if the component is none or not a worker component.
+pure fn GetWorkerAssignment(Component: ActorComponent, out Found: bool) -> WorkerAssignment {
+    Found = true
+    let industry = cast(Component, Industry)
+    if industry != none {
+        return industry.m_workers
+    }
+    let lab = cast(Component, ResearchLab)
+    if lab != none {
+        return lab.m_workers
+    }
+    let camp = cast(Component, HarvestingCamp)
+    if camp != none {
+        return camp.m_workers
+    }
+    let farm = cast(Component, FarmBuilding)
+    if farm != none {
+        return farm.m_workers
+    }
+    let terraform = cast(Component, TerraformCamp)
+    if terraform != none {
+        return terraform.m_workers
+    }
+    // LogisticsHub is also the name of a building Blueprint, so the component class needs its path, which cast can't
+    // take: find the owner's hub component by class instead and check it is this component.
+    if Component != none {
+        let hub = Component.GetOwner().GetComponentByClass(/Script/ProjectArco.LogisticsHub)
+        if hub != none && hub == Component {
+            return hub.m_workers
+        }
+    }
+    let delivery = cast(Component, PackageDelivery)
+    if delivery != none {
+        return delivery.m_workers
+    }
+    let food = cast(Component, FoodDistributor)
+    if food != none {
+        return food.m_workers
+    }
+    let storage = cast(Component, ResourceBuilding)
+    if storage != none {
+        return storage.m_workers
+    }
+    Found = false
+    return WorkerAssignment()
+}
+
+// The worker slots of a worker component.
+//
+// In:  Component - a worker component (from GetWorkerComponent).
+// Out: Return - its slots in slot-index order; empty if it isn't a worker component.
+pure fn GetWorkerSlots(Component: ActorComponent) -> array<WorkerSlot> {
+    return GetWorkerAssignment(Component).ReturnValue.m_workerSlots
+}
+
+// Whether the player has switched the workplace off (its worker assignment is disabled).
+//
+// In:  Component - a worker component (from GetWorkerComponent).
+// Out: Return - true if disabled; false also when it isn't a worker component.
+pure fn IsWorkplaceDisabled(Component: ActorComponent) -> bool {
+    return GetWorkerAssignment(Component).ReturnValue.bDisabled
+}
+
+// ---- slots ----
+
+// The ID of the whisker in a slot.
+//
+// In:  Slot - a worker slot.
+// Out: Return - the occupant's agent ID, or -1 when the slot is empty.
+pure fn GetSlotAgentId(Slot: WorkerSlot) -> int {
+    if Slot.Agent == none {
+        return -1
+    }
+    return Slot.Agent.m_characteristics.ID
+}
+
+// Finds the slot a whisker occupies in a building.
+//
+// In:  Building - the building actor.
+//      AgentID - the whisker's agent ID.
+// Out: Return - the slot index, or -1 if he isn't listed (or the building has no worker component).
+pure fn FindAgentSlot(Building: Actor, AgentID: int) -> int {
+    let slots = GetWorkerSlots(GetWorkerComponent(Building))
+    let index = 0
+    for slot in slots {
+        if GetSlotAgentId(slot) == AgentID {
+            return index
+        }
+        index += 1
+    }
+    return -1
+}
+
+// ---- building identity ----
+
+// The building's ID. Previews and construction sites have ID <= 0.
+//
+// In:  Building - the building actor.
+// Out: Return - its GridActor ID, or -1 if it isn't a grid actor.
+pure fn GetBuildingId(Building: Actor) -> int {
+    let grid = cast(Building, GridActor)
+    if grid == none {
+        return -1
+    }
+    return grid.ID
+}
+
+// The building's prefab key, as in the GridActors table (case-sensitive, e.g. firetender, LogisticsHub).
+//
+// In:  Building - the building actor.
+// Out: Return - its prefab key, or None if it isn't a grid actor.
+pure fn GetPrefabKey(Building: Actor) -> name {
+    let grid = cast(Building, GridActor)
+    if grid == none {
+        return "None"
+    }
+    return grid.PrefabInfo.prefabKey
+}
