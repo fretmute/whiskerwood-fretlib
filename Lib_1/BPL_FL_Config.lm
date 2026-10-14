@@ -1,0 +1,238 @@
+blueprint BPL_FL_Config : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_Config
+
+// Reads a mod's pipe-separated text files (the FileConfig conventions) and registers its localization.
+// File rules: the first non-comment line is the column header; `#` starts a comment line; blank lines are ignored; spaces
+// around each `|` and the CR of Windows line endings are trimmed. ModAPI only reads `.txt` files beside the mod's pak.
+// Localization: one `<langId>.txt` per language (`Key | Value`), for the languages ModAPI.ListLanguageIds reports; every
+// language starts from en.txt, so an untranslated key shows English instead of the raw key.
+// Design: workflows/AgentEmploymentAutomation/docs/ModOptionsDesign.md §0.
+
+category "Fretlib|Config"
+
+// ---- lines and columns ----
+
+// Reads a mod's text file as clean lines: comments and blank lines dropped, ends trimmed. The header line is kept.
+//
+// In:  ModName - the mod's folder name (as ModAPI.ReadModTextFile expects).
+//      FileName - the file, e.g. "Settings.txt".
+// Out: Return - the lines, header first; empty if the file is missing or empty.
+fn ReadLines(ModName: string, FileName: string) -> array<string> {
+    let lines: array<string> = []
+    let text = ModAPI.GetModAPI().ReadModTextFile(ModName, FileName)
+    let raw = KismetStringLibrary.ParseIntoArray(text, "\n", true)
+    for line in raw {
+        let clean = KismetStringLibrary.Trim(KismetStringLibrary.TrimTrailing(line))
+        if clean != "" && !KismetStringLibrary.StartsWith(clean, "#", ESearchCase.CaseSensitive) {
+            lines.Add(clean)
+        }
+    }
+    return lines
+}
+
+// Splits a line into its pipe-separated columns, each trimmed. Empty columns are kept, so positions line up with the header.
+//
+// In:  Line - one line.
+// Out: Return - the columns.
+fn SplitColumns(Line: string) -> array<string> {
+    let columns: array<string> = []
+    let parts = KismetStringLibrary.ParseIntoArray(Line, "|", false)
+    for part in parts {
+        columns.Add(KismetStringLibrary.Trim(KismetStringLibrary.TrimTrailing(part)))
+    }
+    return columns
+}
+
+// Reads a table: the header's column names and the data lines below it.
+//
+// In:  ModName - the mod's folder name.
+//      FileName - the file.
+// Out: Return - the data lines (split them with SplitColumns, or read one value with GetColumnValue).
+//      Columns - the header's column names; empty if the file is missing.
+fn ReadTable(ModName: string, FileName: string, out Columns: array<string>) -> array<string> {
+    let rows: array<string> = []
+    let lines = ReadLines(ModName, FileName)
+    let index = 0
+    for line in lines {
+        if index == 0 {
+            Columns = SplitColumns(line)
+        } else {
+            rows.Add(line)
+        }
+        index += 1
+    }
+    return rows
+}
+
+// One value from a table row, by column name (case-insensitive).
+//
+// In:  Row - a data line.
+//      Columns - the header's column names.
+//      ColumnName - the column to read.
+// Out: Return - the value; empty if the column or the value is missing.
+//      Found - true if the row has that column.
+fn GetColumnValue(Row: string, Columns: array<string>, ColumnName: string, out Found: bool) -> string {
+    Found = false
+    let values = SplitColumns(Row)
+    let index = 0
+    for column in Columns {
+        if KismetStringLibrary.ToLower(column) == KismetStringLibrary.ToLower(ColumnName) {
+            if values.IsValidIndex(index) {
+                Found = true
+                return values[index]
+            }
+        }
+        index += 1
+    }
+    return ""
+}
+
+// Reads a `Key | Value` file into a map. The header line is skipped; a value may itself contain `|` (only the first one splits).
+// A later line with the same key replaces an earlier one.
+//
+// In:  ModName - the mod's folder name.
+//      FileName - the file.
+// Out: Return - how many keys were read (0 if the file is missing).
+//      Values - key -> value. (An out parameter rather than the return: it starts empty without an empty-map literal,
+//      which Unreal's compile rejected for sets.)
+fn ReadKeyValues(ModName: string, FileName: string, out Values: map<name, string>) -> int {
+    let lines = ReadLines(ModName, FileName)
+    let index = 0
+    for line in lines {
+        if index > 0 {
+            let parts = KismetStringLibrary.Split(line, "|", ESearchCase.CaseSensitive, ESearchDir.FromStart)
+            if parts.ReturnValue {
+                let key = KismetStringLibrary.Trim(KismetStringLibrary.TrimTrailing(parts.LeftS))
+                if key != "" {
+                    Values.Add(name(key), KismetStringLibrary.Trim(KismetStringLibrary.TrimTrailing(parts.RightS)))
+                }
+            }
+        }
+        index += 1
+    }
+    return Values.Length()
+}
+
+// ---- typed values ----
+
+// Whether a value means "use the default": missing, empty, or the word "default" (any case).
+//
+// In:  Values - key -> value.
+//      Key - the key.
+// Out: Return - true if the default applies.
+//      Value - the trimmed value when it doesn't.
+pure fn IsDefault(Values: map<name, string>, Key: name, out Value: string) -> bool {
+    let found = Values.Find(Key)
+    Value = found.Value
+    return !found.ReturnValue || Value == "" || KismetStringLibrary.ToLower(Value) == "default"
+}
+
+// A text value.
+//
+// In:  Values - key -> value.
+//      Key - the key.
+//      Default - used when the key is missing, empty or "default".
+// Out: Return - the value.
+pure fn GetString(Values: map<name, string>, Key: name, Default: string) -> string {
+    let check = IsDefault(Values, Key)
+    return if check.ReturnValue { Default } else { check.Value }
+}
+
+// An on/off value: true, on, yes, 1 / false, off, no, 0 (any case).
+//
+// In:  Values - key -> value.
+//      Key - the key.
+//      Default - used when the key is missing, empty, "default", or not a recognised word.
+// Out: Return - the value.
+//      Valid - false if the key had a value that isn't recognised (the caller may log it).
+pure fn GetBool(Values: map<name, string>, Key: name, Default: bool, out Valid: bool) -> bool {
+    Valid = true
+    let check = IsDefault(Values, Key)
+    if check.ReturnValue {
+        return Default
+    }
+    let v = KismetStringLibrary.ToLower(check.Value)
+    if v == "true" || v == "on" || v == "yes" || v == "1" {
+        return true
+    }
+    if v == "false" || v == "off" || v == "no" || v == "0" {
+        return false
+    }
+    Valid = false
+    return Default
+}
+
+// A whole number.
+//
+// In:  Values - key -> value.
+//      Key - the key.
+//      Default - used when the key is missing, empty, "default", or not a number.
+// Out: Return - the value.
+//      Valid - false if the key had a value that isn't a number.
+pure fn GetInt(Values: map<name, string>, Key: name, Default: int, out Valid: bool) -> int {
+    Valid = true
+    let check = IsDefault(Values, Key)
+    if check.ReturnValue {
+        return Default
+    }
+    if !KismetStringLibrary.IsNumeric(check.Value) {
+        Valid = false
+        return Default
+    }
+    return int(check.Value)
+}
+
+// A number with decimals.
+//
+// In:  Values - key -> value.
+//      Key - the key.
+//      Default - used when the key is missing, empty, "default", or not a number.
+// Out: Return - the value.
+//      Valid - false if the key had a value that isn't a number.
+pure fn GetFloat(Values: map<name, string>, Key: name, Default: float, out Valid: bool) -> float {
+    Valid = true
+    let check = IsDefault(Values, Key)
+    if check.ReturnValue {
+        return Default
+    }
+    if !KismetStringLibrary.IsNumeric(check.Value) {
+        Valid = false
+        return Default
+    }
+    return float(check.Value)
+}
+
+// ---- localization ----
+
+// Registers a mod's strings for every language the game lists: `<langId>.txt` laid over en.txt, so untranslated keys
+// fall back to English. Languages without a file get the English strings.
+//
+// In:  ModName - the mod's folder name.
+// Out: Return - how many languages had their own file (en included).
+//      Summary - e.g. "en (12 keys), de (10 keys)", for a log line; "no en.txt" if English is missing.
+fn LoadLocalization(ModName: string, out Summary: string) -> int {
+    let api = ModAPI.GetModAPI()
+    let englishRead = ReadKeyValues(ModName, "en.txt")
+    let english = englishRead.Values
+    let files = 0
+    Summary = ""
+    if englishRead.ReturnValue == 0 {
+        Summary = "no en.txt"
+    }
+    let ids = api.ListLanguageIds()
+    for id in ids {
+        let ownRead = ReadKeyValues(ModName, string(id) + ".txt")
+        let own = ownRead.Values
+        let merged = english
+        for key, value in own {
+            merged.Add(key, value)
+        }
+        if own.Length() > 0 {
+            files += 1
+            Summary = Summary + (if Summary == "" { "" } else { ", " }) + string(id) + " (" + string(own.Length()) + " keys)"
+        }
+        if merged.Length() > 0 {
+            api.AddNewStrings(id, merged)
+        }
+    }
+    return files
+}

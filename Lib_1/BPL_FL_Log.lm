@@ -10,7 +10,8 @@ category "Fretlib|Log"
 // ---- version ----
 
 // The Lib_1 release number. A caller that gets 0 knows Fretlib is missing or older than Lib_1 (every call to a missing
-// library returns zero).
+// library returns zero); a caller that needs a later addition checks for that release. Stays 1 until the first public
+// release; bumped once per release after that.
 //
 // In:  none
 // Out: Return - the release number, 1 or more.
