@@ -1,0 +1,243 @@
+blueprint BPL_FL_ModMenu : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_ModMenu
+use /Game/Mods/Fretlib/Lib_1
+
+// The Fretlib mod menu's public API: a mod registers its options here (one function per type), reads them back typed, and
+// binds the menu's dispatchers to hear about changes. Call from onLoadingFinished on, in each map load (the registry belongs
+// to the map). Every function returns false (or the default, for readers) when Fretlib's menu isn't there.
+// Append-only once released (Lib_1). Design: workflows/CommonLibrary/docs/ModMenuPlan.md §3.4.
+
+category "Fretlib|ModMenu"
+
+// The map's mod menu: the AC_FL_ModMenu on Fretlib's BP_MapLoad (the HUD router). Bind its ModOptionChanged,
+// ModOptionsApplied and ModActionPressed to hear about changes.
+//
+// In:  none
+// Out: Return - the menu, or none before Fretlib's BP_MapLoad has spawned (or without Fretlib).
+fn GetMenu() -> AC_FL_ModMenu {
+    let router = GameplayStatics.GetActorOfClass(BP_FL_HudRouter)
+    if router == none {
+        return none
+    }
+    return cast(router.GetComponentByClass(AC_FL_ModMenu), AC_FL_ModMenu)
+}
+
+// Registers a mod in the menu, before its options. Registering again updates its name and keeps its options.
+//
+// In:  ModId - the mod's id; stable once released (it prefixes the saved keys).
+//      NameKey - string key of the mod's display name.
+//      DescKey - string key of its description.
+// Out: Return - false without the menu.
+fn RegisterMod(ModId: string, NameKey: string, DescKey: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.RegisterMod(ModId, NameKey, DescKey)
+}
+
+// Adds a heading to a mod; the options added after it are listed under it, until the next group.
+//
+// In:  ModId - the mod's id.
+//      GroupId - the group's id inside the mod.
+//      NameKey - string key of the heading.
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddGroup(ModId: string, GroupId: string, NameKey: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: GroupId, Type: E_FL_ModOptionType.Group, NameKey: NameKey))
+}
+
+// Adds an on/off option.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Default - its value until the player changes it.
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddBool(ModId: string, OptionId: string, NameKey: string, DescKey: string, Default: bool) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    let def = if Default { "true" } else { "false" }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Bool, NameKey: NameKey, DescKey: DescKey, Default: def))
+}
+
+// Adds a whole-number option, changed with -/+ buttons.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Default - its value until the player changes it.
+//      Min - the smallest value.
+//      Max - the largest value.
+//      Step - the change per click (1 or more).
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddInt(ModId: string, OptionId: string, NameKey: string, DescKey: string, Default: int, Min: int, Max: int, Step: int) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    let stepValue = if Step < 1 { 1 } else { Step }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Int, NameKey: NameKey, DescKey: DescKey, Default: string(Default), Min: float(Min), Max: float(Max), Step: float(stepValue)))
+}
+
+// Adds a number option with decimals, changed with -/+ buttons.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Default - its value until the player changes it.
+//      Min - the smallest value.
+//      Max - the largest value.
+//      Step - the change per click.
+//      Decimals - decimal places shown.
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddFloat(ModId: string, OptionId: string, NameKey: string, DescKey: string, Default: float, Min: float, Max: float, Step: float, Decimals: int) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Float, NameKey: NameKey, DescKey: DescKey, Default: string(Default), Min: Min, Max: Max, Step: Step, Decimals: Decimals))
+}
+
+// Adds an option whose value is one of a list, cycled with arrows.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Choices - the choices' string keys, in order; the value is the chosen key.
+//      Default - the default choice (one of Choices).
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddChoice(ModId: string, OptionId: string, NameKey: string, DescKey: string, Choices: array<string>, Default: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Choice, NameKey: NameKey, DescKey: DescKey, Default: Default, Choices: Choices))
+}
+
+// Adds a free-text option.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Default - its value until the player changes it.
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddText(ModId: string, OptionId: string, NameKey: string, DescKey: string, Default: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Text, NameKey: NameKey, DescKey: DescKey, Default: Default))
+}
+
+// Adds a key option (press a key to bind it).
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Default - the default key's name, as OptionManager.KeyToString writes it (e.g. "F7").
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddKey(ModId: string, OptionId: string, NameKey: string, DescKey: string, Default: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Key, NameKey: NameKey, DescKey: DescKey, Default: Default))
+}
+
+// Adds a button. Pressing it fires the menu's ModActionPressed at once (not on Apply).
+//
+// In:  ModId - the mod's id.
+//      OptionId - the action's id inside the mod.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddAction(ModId: string, OptionId: string, NameKey: string, DescKey: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Action, NameKey: NameKey, DescKey: DescKey))
+}
+
+// An on/off option's applied value.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+//      Fallback - returned without the menu or when the option isn't registered.
+// Out: Return - the value.
+fn GetBool(ModId: string, OptionId: string, Fallback: bool) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return Fallback
+    }
+    let v = menu.GetValue(ModId, OptionId)
+    if !v.Found {
+        return Fallback
+    }
+    return v.ReturnValue == "true"
+}
+
+// A whole-number option's applied value, within its range.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+//      Fallback - returned without the menu or when the option isn't registered.
+// Out: Return - the value.
+fn GetInt(ModId: string, OptionId: string, Fallback: int) -> int {
+    let menu = GetMenu()
+    if menu == none {
+        return Fallback
+    }
+    let v = menu.GetValue(ModId, OptionId)
+    if !v.Found {
+        return Fallback
+    }
+    return int(v.ReturnValue)
+}
+
+// A number option's applied value, within its range.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+//      Fallback - returned without the menu or when the option isn't registered.
+// Out: Return - the value.
+fn GetFloat(ModId: string, OptionId: string, Fallback: float) -> float {
+    let menu = GetMenu()
+    if menu == none {
+        return Fallback
+    }
+    let v = menu.GetValue(ModId, OptionId)
+    if !v.Found {
+        return Fallback
+    }
+    return float(v.ReturnValue)
+}
+
+// A choice, text or key option's applied value (a choice gives its key).
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+//      Fallback - returned without the menu or when the option isn't registered.
+// Out: Return - the value.
+fn GetString(ModId: string, OptionId: string, Fallback: string) -> string {
+    let menu = GetMenu()
+    if menu == none {
+        return Fallback
+    }
+    let v = menu.GetValue(ModId, OptionId)
+    if !v.Found {
+        return Fallback
+    }
+    return v.ReturnValue
+}

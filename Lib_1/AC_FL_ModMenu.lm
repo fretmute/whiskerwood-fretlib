@@ -1,0 +1,379 @@
+blueprint AC_FL_ModMenu : ActorComponent at /Game/Mods/Fretlib/Lib_1/AC_FL_ModMenu
+use /Game/Mods/Fretlib/Lib_1
+
+// The Fretlib mod menu's state for one map: the mods and options other mods register, their applied values (saved in the slot
+// Fretlib_ModMenu), the edits waiting for Apply, and the dispatchers that tell mods about changes. Declared on Fretlib's
+// BP_MapLoad (Loom can't spawn actors or add components). Clients use BPL_FL_ModMenu, not this component's functions.
+// Design: workflows/CommonLibrary/docs/ModMenuPlan.md §3.4, §6, §7.
+
+category "Fretlib|ModMenu"
+
+// Fired once per option when Apply writes a new value. Mods bind it and ignore other mods' ids.
+dispatcher ModOptionChanged(ModId: string, OptionId: string, Value: string)
+// Fired once per mod that had changes, after its ModOptionChanged events.
+dispatcher ModOptionsApplied(ModId: string)
+// Fired when an Action option's button is pressed.
+dispatcher ModActionPressed(ModId: string, OptionId: string)
+
+// This component's logger.
+var Logger: S_FL_Logger
+// Registered mods by id.
+var Mods: map<string, S_FL_ModEntry>
+// Registered rows by key (<ModId>.<OptionId>, groups <ModId>.#<GroupId>).
+var Options: map<string, S_FL_ModOption>
+// Applied values by key, as saved.
+var Values: map<string, string>
+// Edits waiting for Apply, by key.
+var Pending: map<string, string>
+// Whether the slot has been read this load.
+var bLoaded: bool = false
+
+// The name of the save slot.
+//
+// In:  none
+// Out: Return - "Fretlib_ModMenu".
+pure fn SlotName() -> string {
+    return "Fretlib_ModMenu"
+}
+
+// The saved key of an option.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+// Out: Return - "<ModId>.<OptionId>".
+pure fn OptionKey(ModId: string, OptionId: string) -> string {
+    return ModId + "." + OptionId
+}
+
+// Reads the slot into Values, once per load.
+//
+// In:  none
+// Out: none
+fn EnsureLoaded() {
+    if bLoaded {
+        return
+    }
+    bLoaded = true
+    let sg = cast(GameplayStatics.LoadGameFromSlot(SlotName(), 0), SG_FL_ModMenu)
+    if sg == none {
+        BPL_FL_Log.Info(Logger, "mod menu: no saved values yet (" + SlotName() + ")")
+        return
+    }
+    Values = sg.Values
+    BPL_FL_Log.Info(Logger, "mod menu: loaded " + string(Values.Length()) + " saved values")
+}
+
+// Writes Values to the slot.
+//
+// In:  none
+// Out: Return - whether the save succeeded.
+fn SaveValues() -> bool {
+    let sg = cast(GameplayStatics.CreateSaveGameObject(SG_FL_ModMenu), SG_FL_ModMenu)
+    if sg == none {
+        BPL_FL_Log.Error(Logger, "mod menu: could not create the save object")
+        return false
+    }
+    sg.Values = Values
+    let ok = GameplayStatics.SaveGameToSlot(sg, SlotName(), 0)
+    if !ok {
+        BPL_FL_Log.Error(Logger, "mod menu: could not save the slot " + SlotName())
+    }
+    return ok
+}
+
+// Adds a mod, or updates its name and description if it is already registered (its rows stay, in their order).
+//
+// In:  ModId - the mod's id (stable; the first part of its saved keys).
+//      NameKey - string key of its display name.
+//      DescKey - string key of its description.
+// Out: Return - true.
+fn RegisterMod(ModId: string, NameKey: string, DescKey: string) -> bool {
+    EnsureLoaded()
+    let found = Mods.Find(ModId)
+    let entry = if found.ReturnValue { found.Value } else { S_FL_ModEntry(ModId: ModId) }
+    entry.NameKey = NameKey
+    entry.DescKey = DescKey
+    entry.CurrentGroup = ""
+    Mods.Add(ModId, entry)
+    BPL_FL_Log.Debug(Logger, "mod menu: registered mod " + ModId)
+    return true
+}
+
+// Adds a row to a registered mod, or replaces it (same place in the list). Options join the mod's current group; a Group row
+// becomes the current group.
+//
+// In:  Row - the row; ModId, OptionId and Type must be set.
+// Out: Return - false if the mod isn't registered or the ids are empty.
+fn AddRow(Row: S_FL_ModOption) -> bool {
+    let found = Mods.Find(Row.ModId)
+    if !found.ReturnValue {
+        BPL_FL_Log.Warning(Logger, "mod menu: " + Row.ModId + "." + Row.OptionId + " added before RegisterMod; ignored")
+        return false
+    }
+    if Row.OptionId == "" {
+        BPL_FL_Log.Warning(Logger, "mod menu: an option of " + Row.ModId + " has no id; ignored")
+        return false
+    }
+    let entry = found.Value
+    let key = ""
+    let group = ""
+    if Row.Type == E_FL_ModOptionType.Group {
+        key = Row.ModId + ".#" + Row.OptionId
+        group = Row.OptionId
+        entry.CurrentGroup = Row.OptionId
+    } else {
+        key = OptionKey(Row.ModId, Row.OptionId)
+        group = entry.CurrentGroup
+    }
+    // Not named `row`: Blueprint names ignore case, so a local `row` would be the parameter `Row`, which can't be written.
+    let newRow = S_FL_ModOption(ModId: Row.ModId, OptionId: Row.OptionId, Type: Row.Type, NameKey: Row.NameKey, DescKey: Row.DescKey, GroupId: group, Default: Row.Default, Min: Row.Min, Max: Row.Max, Step: Row.Step, Decimals: Row.Decimals, Choices: Row.Choices)
+    if !entry.Keys.Contains(key) {
+        entry.Keys.Add(key)
+    }
+    Mods.Add(Row.ModId, entry)
+    Options.Add(key, newRow)
+    return true
+}
+
+// Checks a value for an option and puts it in its stored form: "true"/"false", a number clamped to the range, a listed choice,
+// or the text as it is.
+//
+// In:  Row - the option.
+//      Value - the value as text.
+// Out: Return - the stored form, or the option's default when the value isn't valid.
+//      Valid - whether the value was valid.
+fn Normalize(Row: S_FL_ModOption, Value: string, out Valid: bool) -> string {
+    Valid = true
+    let v = KismetStringLibrary.TrimTrailing(KismetStringLibrary.Trim(Value))
+    if Row.Type == E_FL_ModOptionType.Bool {
+        let lower = KismetStringLibrary.ToLower(v)
+        if lower == "true" || lower == "on" || lower == "yes" || lower == "1" {
+            return "true"
+        }
+        if lower == "false" || lower == "off" || lower == "no" || lower == "0" {
+            return "false"
+        }
+        Valid = false
+        return Row.Default
+    }
+    if Row.Type == E_FL_ModOptionType.Int {
+        if !KismetStringLibrary.IsNumeric(v) {
+            Valid = false
+            return Row.Default
+        }
+        let i = int(v)
+        if i < int(Row.Min) {
+            i = int(Row.Min)
+        }
+        if i > int(Row.Max) {
+            i = int(Row.Max)
+        }
+        return string(i)
+    }
+    if Row.Type == E_FL_ModOptionType.Float {
+        if !KismetStringLibrary.IsNumeric(v) {
+            Valid = false
+            return Row.Default
+        }
+        let f = float(v)
+        if f < Row.Min {
+            f = Row.Min
+        }
+        if f > Row.Max {
+            f = Row.Max
+        }
+        return string(f)
+    }
+    if Row.Type == E_FL_ModOptionType.Choice {
+        if Row.Choices.Contains(v) {
+            return v
+        }
+        Valid = false
+        return Row.Default
+    }
+    if Row.Type == E_FL_ModOptionType.Text {
+        return Value
+    }
+    if Row.Type == E_FL_ModOptionType.Key {
+        return v
+    }
+    Valid = false
+    return ""
+}
+
+// The applied value of an option in its stored form: the saved value if it is valid, otherwise the default.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+// Out: Return - the value, or empty when the option isn't registered.
+//      Found - whether the option is registered.
+fn GetValue(ModId: string, OptionId: string, out Found: bool) -> string {
+    EnsureLoaded()
+    let key = OptionKey(ModId, OptionId)
+    let row = Options.Find(key)
+    Found = row.ReturnValue
+    if !row.ReturnValue {
+        return ""
+    }
+    let saved = Values.Find(key)
+    if !saved.ReturnValue {
+        return row.Value.Default
+    }
+    let check = Normalize(row.Value, saved.Value)
+    return check.ReturnValue
+}
+
+// The value the menu shows for an option: the pending edit if there is one, otherwise the applied value.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+// Out: Return - the value, or empty when the option isn't registered.
+fn GetShownValue(ModId: string, OptionId: string) -> string {
+    let edit = Pending.Find(OptionKey(ModId, OptionId))
+    if edit.ReturnValue {
+        return edit.Value
+    }
+    let applied = GetValue(ModId, OptionId)
+    return applied.ReturnValue
+}
+
+// Records an edit to apply later. An edit back to the applied value removes the pending one.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+//      Value - the new value as text.
+// Out: Return - false if the option isn't registered, has no value (group, action) or the value isn't valid.
+fn StageValue(ModId: string, OptionId: string, Value: string) -> bool {
+    let key = OptionKey(ModId, OptionId)
+    let row = Options.Find(key)
+    if !row.ReturnValue {
+        BPL_FL_Log.Warning(Logger, "mod menu: StageValue for unknown option " + key)
+        return false
+    }
+    let check = Normalize(row.Value, Value)
+    if !check.Valid {
+        BPL_FL_Log.Warning(Logger, "mod menu: '" + Value + "' isn't a valid value for " + key)
+        return false
+    }
+    let applied = GetValue(ModId, OptionId)
+    if check.ReturnValue == applied.ReturnValue {
+        Pending.Remove(key)
+    } else {
+        Pending.Add(key, check.ReturnValue)
+    }
+    return true
+}
+
+// Stages every option of a mod back to its default.
+//
+// In:  ModId - the mod's id.
+// Out: Return - how many options now have a pending edit.
+fn StageDefaults(ModId: string) -> int {
+    let found = Mods.Find(ModId)
+    if !found.ReturnValue {
+        return 0
+    }
+    let count = 0
+    for key in found.Value.Keys {
+        let row = Options.Find(key)
+        if row.ReturnValue {
+            if row.Value.Type != E_FL_ModOptionType.Group && row.Value.Type != E_FL_ModOptionType.Action {
+                StageValue(ModId, row.Value.OptionId, row.Value.Default)
+                if Pending.Contains(key) {
+                    count += 1
+                }
+            }
+        }
+    }
+    return count
+}
+
+// Whether any edits are waiting for Apply.
+//
+// In:  none
+// Out: Return - true if there are pending edits.
+pure fn HasPending() -> bool {
+    return Pending.Length() > 0
+}
+
+// Whether a mod has edits waiting for Apply.
+//
+// In:  ModId - the mod's id.
+// Out: Return - true if one of its options has a pending edit.
+fn ModHasPending(ModId: string) -> bool {
+    for key, value in Pending {
+        let row = Options.Find(key)
+        if row.ReturnValue {
+            if row.Value.ModId == ModId {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+// Drops every pending edit.
+//
+// In:  none
+// Out: none
+fn Revert() {
+    Pending.Clear()
+}
+
+// Writes every pending edit to the applied values, saves the slot once, then fires ModOptionChanged for each option and
+// ModOptionsApplied for each mod that changed.
+//
+// In:  none
+// Out: Return - how many options were applied.
+fn Apply() -> int {
+    if Pending.Length() == 0 {
+        return 0
+    }
+    let keys: array<string> = []
+    for key, value in Pending {
+        Values.Add(key, value)
+        keys.Add(key)
+    }
+    Pending.Clear()
+    SaveValues()
+    let changedMods: array<string> = []
+    for key in keys {
+        let row = Options.Find(key)
+        if row.ReturnValue {
+            let o = row.Value
+            BPL_FL_Log.Info(Logger, "mod menu: applied " + key + " = " + Values[key])
+            ModOptionChanged.broadcast(o.ModId, o.OptionId, Values[key])
+            if !changedMods.Contains(o.ModId) {
+                changedMods.Add(o.ModId)
+            }
+        }
+    }
+    for modId in changedMods {
+        ModOptionsApplied.broadcast(modId)
+    }
+    return keys.Length()
+}
+
+// Fires ModActionPressed for an Action option.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the action's id.
+// Out: Return - false if it isn't a registered action.
+fn PressAction(ModId: string, OptionId: string) -> bool {
+    let row = Options.Find(OptionKey(ModId, OptionId))
+    if !row.ReturnValue {
+        return false
+    }
+    if row.Value.Type != E_FL_ModOptionType.Action {
+        return false
+    }
+    BPL_FL_Log.Info(Logger, "mod menu: action " + ModId + "." + OptionId)
+    ModActionPressed.broadcast(ModId, OptionId)
+    return true
+}
+
+// Sets up the logger and reads the saved values.
+on ReceiveBeginPlay {
+    Logger = BPL_FL_Log.Configure("Fretlib", E_FL_LogLevel.Debug)
+    EnsureLoaded()
+}

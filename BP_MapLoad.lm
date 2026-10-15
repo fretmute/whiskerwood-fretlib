@@ -2,7 +2,11 @@ blueprint BP_MapLoad : BP_FL_HudRouter at /Game/Mods/Fretlib/BP_MapLoad
 use /Game/Mods/Fretlib/Lib_1
 
 // Spawned by the game on every map load (folder order: after mods whose folders sort before Fretlib). It is the map's
-// shared HUD router (parent BP_FL_HudRouter), and writes the library version once per load, for bug reports.
+// shared HUD router (parent BP_FL_HudRouter) and holds the mod menu (AC_FL_ModMenu), and writes the library version once per
+// load, for bug reports.
+
+// The mod menu's registry, values and dispatchers (ModMenuPlan.md §7). Found through BPL_FL_ModMenu.GetMenu.
+component ModMenu: AC_FL_ModMenu
 
 // Writes "Lib_1 r<N> loaded" as a ForceLog line.
 on ReceiveBeginPlay {

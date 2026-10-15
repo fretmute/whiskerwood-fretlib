@@ -1,0 +1,28 @@
+// One registered row of the mod menu (an option or a group heading). Internal to Fretlib: clients use BPL_FL_ModMenu's
+// functions, never this struct, so it may still change. Design: workflows/CommonLibrary/docs/ModMenuPlan.md §3.4, §10.
+struct S_FL_ModOption at /Game/Mods/Fretlib/Lib_1/S_FL_ModOption {
+    // The mod it belongs to.
+    ModId: string
+    // Its id inside the mod (a group's id for a heading).
+    OptionId: string
+    // What kind of row it is.
+    Type: E_FL_ModOptionType = E_FL_ModOptionType.Bool
+    // String key of its name.
+    NameKey: string
+    // String key of its description (the row's tooltip).
+    DescKey: string
+    // The group heading it sits under, or empty.
+    GroupId: string
+    // The default value as text ("true"/"false", a number, a choice key, text or a key name; empty for groups and actions).
+    Default: string
+    // Smallest value (Int, Float).
+    Min: float
+    // Largest value (Int, Float).
+    Max: float
+    // Change per -/+ click (Int, Float).
+    Step: float = 1.0
+    // Decimal places shown (Float).
+    Decimals: int
+    // The choice keys (Choice).
+    Choices: array<string>
+}

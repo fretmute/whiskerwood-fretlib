@@ -1,0 +1,20 @@
+// The kinds of row in the Fretlib mod menu. Add new kinds at the end only (Lib_1 append-only rule).
+// Design: workflows/CommonLibrary/docs/ModMenuPlan.md §3.4, §4.
+enum E_FL_ModOptionType at /Game/Mods/Fretlib/Lib_1/E_FL_ModOptionType {
+    // A heading inside a mod; the options after it belong to it.
+    Group
+    // On or off.
+    Bool
+    // A whole number in a range.
+    Int
+    // A number with decimals in a range.
+    Float
+    // One key out of a list.
+    Choice
+    // Free text.
+    Text
+    // A key on the keyboard, by name.
+    Key
+    // A button with no value.
+    Action
+}

@@ -1,0 +1,14 @@
+// One registered mod in the mod menu. Internal to Fretlib (see S_FL_ModOption).
+// Design: workflows/CommonLibrary/docs/ModMenuPlan.md §2, §10.
+struct S_FL_ModEntry at /Game/Mods/Fretlib/Lib_1/S_FL_ModEntry {
+    // The mod's id, also the first part of its saved keys.
+    ModId: string
+    // String key of its display name.
+    NameKey: string
+    // String key of its description.
+    DescKey: string
+    // The group the next options go into (set by AddGroup).
+    CurrentGroup: string
+    // Its rows' keys (<ModId>.<OptionId>, groups <ModId>.#<GroupId>) in registration order.
+    Keys: array<string>
+}

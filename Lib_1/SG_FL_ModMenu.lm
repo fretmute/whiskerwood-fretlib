@@ -1,0 +1,10 @@
+blueprint SG_FL_ModMenu : SaveGame at /Game/Mods/Fretlib/Lib_1/SG_FL_ModMenu
+
+// The applied values of every mod's menu options, in the slot Fretlib_ModMenu (Saved/SaveGames), so they survive mod updates.
+// Values are text keyed <ModId>.<OptionId>; AC_FL_ModMenu parses them, so the slot's shape doesn't change when options are added.
+// Design: workflows/CommonLibrary/docs/ModMenuPlan.md §6.2.
+
+// <ModId>.<OptionId> -> applied value. An option without an entry uses its registered default.
+var Values: map<string, string>
+// The slot's format version.
+var Version: int = 1
