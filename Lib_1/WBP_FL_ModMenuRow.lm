@@ -4,7 +4,8 @@ use /Game/Mods/Fretlib/Lib_1
 // One row of the mod menu's pane, in the staffing panel's row layout without the icon: | name | control |. The name fills the
 // left; the control sits in a fixed-width box on the right so controls line up. Controls are the game's own widgets: Bool an
 // arcoToggle; Int and Float the round -/+ buttons with the value between; Choice the round buttons as arrows around the chosen
-// key's text (a dropdown instead for lists over 6 choices, and always for Dropdown); Text a text box; Key the game's key icon (or the key's name) and a Change button that captures the next key;
+// key's text (a dropdown instead for lists over 6 choices, and always for Dropdown; the dropdown's own label is hidden and
+// ComboLabel drawn over it, since its font can't be changed at run time); values over LongValue characters are drawn smaller; Text a text box; Key the game's key icon (or the key's name) and a Change button that captures the next key;
 // Action a Run button; IntField and FloatField a number box between the -/+ buttons (checked when committed). The name shows the
 // game's own tooltip (TooltipFrame, in a gold outline: WBP_FL_ModMenuTooltip) with the option's name and description; only the name, so it never covers the controls. Edits are staged in
 // AC_FL_ModMenu (applied with the menu's Apply), and Edited tells the menu to update its marks. A group row shows only its
@@ -48,7 +49,11 @@ widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Ri
                 widget ActionBox: SizeBox(HeightOverride: 36) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
                     widget ActionButton: Arco_Button_CommonRound
                 }
-                widget Combo: ComboBoxString(Font: SlateFontInfo(FontObject: /Game/Assets/Fonts/Germania_One/GermaniaOne-Regular_Font.GermaniaOne-Regular_Font, TypefaceFontName: "Default", Size: 20), ForegroundColor: "#E0C27D") slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                widget Combo: ComboBoxString(Font: SlateFontInfo(FontObject: /Game/Assets/Fonts/Germania_One/GermaniaOne-Regular_Font.GermaniaOne-Regular_Font, TypefaceFontName: "Default", Size: 20), ForegroundColor: "#00000000") slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                widget ComboLabel: TextBlock(Text: "", Justification: ETextJustify.Center) slot(Padding: Margin(Left: 8, Right: 26), HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                widget ComboArrowBox: SizeBox(WidthOverride: 12, HeightOverride: 12) slot(Padding: Margin(Right: 10), HorizontalAlignment: EHorizontalAlignment.HAlign_Right, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                    widget ComboArrow: Image
+                }
                 widget Translator: LocTextBlock(Key: "") slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
             }
         }
@@ -78,6 +83,8 @@ var bCapturing: bool = false
 var bNumberError: bool = false
 // Choice lists longer than this show a dropdown instead of the arrows (ModMenuPlan.md §4).
 var DropdownAbove: int = 6
+// Choice values longer than this many characters are drawn smaller, so they fit between the arrows (FitSize).
+var LongValue: int = 13
 
 // Shows an option (or a group heading) with the control for its type and its shown value. Call before the row is added to the pane.
 //
@@ -164,6 +171,8 @@ fn SetUpControls() {
     ActionBox.SetVisibility(if isAction { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     PlainText.SetVisibility(ESlateVisibility.Collapsed)
     Combo.SetVisibility(if isDropdown { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    ComboLabel.SetVisibility(if isDropdown { ESlateVisibility.HitTestInvisible } else { ESlateVisibility.Collapsed })
+    ComboArrowBox.SetVisibility(if isDropdown { ESlateVisibility.HitTestInvisible } else { ESlateVisibility.Collapsed })
     Translator.SetVisibility(ESlateVisibility.Collapsed)
     if isDropdown {
         FillDropdown()
@@ -306,9 +315,11 @@ fn Refresh() {
     if Option.Type == E_FL_ModOptionType.Choice || Option.Type == E_FL_ModOptionType.Dropdown {
         if UsesDropdown() {
             Combo.SetSelectedIndex(Option.Choices.Find(shown))
+            ShowComboLabel()
             return
         }
         ChoiceText.SetKey(name(shown))
+        BPL_FL_UI.StyleMenuText(ChoiceText, FitSize(string(ChoiceText.GetText()), 22.0), true)
         return
     }
     PlainText.SetText(text(shown))
@@ -403,13 +414,19 @@ fn FillDropdown() {
     face.Normal = BPL_FL_UI.RoundedBrush(face.Normal, LinearColor(R: 0.024, G: 0.014, B: 0.005, A: 1.0))
     face.Hovered = BPL_FL_UI.RoundedBrush(face.Hovered, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
     face.Pressed = BPL_FL_UI.RoundedBrush(face.Pressed, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
-    face.NormalForeground = gold
-    face.HoveredForeground = gold
-    face.PressedForeground = gold
+    // The button's own label is drawn see-through (ForegroundColor in the declaration, and here): ComboLabel shows the choice
+    // instead, at a size that fits (ShowComboLabel). The list's entries take their colour from ItemStyle.
+    let hidden = SlateColor(SpecifiedColor: LinearColor(R: 0.0, G: 0.0, B: 0.0, A: 0.0))
+    face.NormalForeground = hidden
+    face.HoveredForeground = hidden
+    face.PressedForeground = hidden
     buttonStyle.ButtonStyle = face
-    let arrow = buttonStyle.DownArrowImage
-    arrow.TintColor = gold
-    buttonStyle.DownArrowImage = arrow
+    // The engine's arrow follows the (see-through) foreground, so it is off and ComboArrow drawn instead: the stepper's gold
+    // arrow icon turned to point down.
+    Combo.HasDownArrow = false
+    ComboArrow.SetBrushFromTexture(ArrowIcon.load(), false)
+    ComboArrow.SetColorAndOpacity(BPL_FL_UI.Gold())
+    ComboArrow.SetRenderTransformAngle(90.0)
     // Plain drawn boxes, not the engine's default images: tinted images show their sliced edges.
     // Opaque, so the rows behind the open list don't show through; no drop shadow (it shows as dark strips past the edges).
     buttonStyle.MenuBorderBrush = BPL_FL_UI.BoxBrush(buttonStyle.MenuBorderBrush, LinearColor(R: 0.012, G: 0.010, B: 0.008, A: 1.0), 6.0)
@@ -437,6 +454,29 @@ fn FillDropdown() {
     Combo.ItemStyle = items
 }
 
+// The font size for a value: Base up to LongValue characters, smaller in proportion beyond that (never below 14).
+//
+// In:  Label - the value as shown.
+//      Base - the normal size.
+// Out: Return - the size.
+pure fn FitSize(Label: string, Base: float) -> float {
+    let length = KismetStringLibrary.Len(Label)
+    if length <= LongValue {
+        return Base
+    }
+    return KismetMathLibrary.FMax(14.0, Base * float(LongValue) / float(length))
+}
+
+// Shows the dropdown's selected choice in ComboLabel, sized to fit.
+//
+// In:  none
+// Out: none
+fn ShowComboLabel() {
+    let label = Combo.GetSelectedOption()
+    ComboLabel.SetText(text(label))
+    BPL_FL_UI.StyleMenuText(ComboLabel, FitSize(label, 20.0), true)
+}
+
 // Stages the choice the player picked in the dropdown. Selections the row makes itself (to show the value) are ignored.
 //
 // In:  SelectedItem - the picked entry's text.
@@ -451,6 +491,7 @@ fn OnDropdownChanged(SelectedItem: string, SelectionType: ESelectInfo) {
         return
     }
     Menu.StageValue(Option.ModId, Option.OptionId, Option.Choices[index])
+    ShowComboLabel()
     RefreshMark()
     Edited.broadcast()
 }

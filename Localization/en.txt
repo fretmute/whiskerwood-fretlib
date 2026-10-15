@@ -4,7 +4,7 @@ Key | Value
 # column. Keys missing from a translation show the English text.
 
 # Mod menu (F8)
-Fretlib.ModMenu.Title | Mod options
+Fretlib.ModMenu.Title | Mod Options
 Fretlib.ModMenu.Reset | Reset to defaults
 Fretlib.ModMenu.Revert | Revert
 Fretlib.ModMenu.Apply | Apply
