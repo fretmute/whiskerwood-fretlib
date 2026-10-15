@@ -1,0 +1,42 @@
+blueprint BPL_FL_UI : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_UI
+use /Game/Mods/Fretlib/Lib_1
+
+// Styling helpers so Fretlib's widgets look like the game's (claude/LoomConventions.md §9): LibreBaskerville Bold, the game's
+// gold text with its dark outline. Values copied from the game's details widgets (Details_Industry_WidgetData.txt).
+
+category "Fretlib|UI"
+
+// The game's gold for labels and values.
+//
+// In:  none
+// Out: Return - the colour.
+pure fn Gold() -> LinearColor {
+    return LinearColor(R: 0.73791, G: 0.527115, B: 0.205079, A: 1.0)
+}
+
+// Sets a text block to the game's label style: LibreBaskerville Bold at a size, gold, with a 1 px dark outline.
+//
+// In:  Target - the text block (or LocTextBlock).
+//      FontSize - the font size (16 for rows, 18-20 for headings, 14 for small text).
+// Out: Return - false if the font couldn't be loaded (the text keeps its old font).
+fn StyleText(Target: TextBlock, FontSize: float) -> bool {
+    if Target == none {
+        return false
+    }
+    let fontRef: soft<Font> = /Game/Assets/Fonts/LibreBaskerville/LibreBaskerville-Bold_Font.LibreBaskerville-Bold_Font
+    let fontObject = fontRef.load()
+    if fontObject == none {
+        return false
+    }
+    let font = Target.Font
+    font.FontObject = fontObject
+    font.TypefaceFontName = "Default"
+    font.Size = FontSize
+    let outline = font.OutlineSettings
+    outline.OutlineSize = 1
+    outline.OutlineColor = LinearColor(R: 0.005208, G: 0.002832, B: 0.000444, A: 1.0)
+    font.OutlineSettings = outline
+    Target.SetFont(font)
+    Target.SetColorAndOpacity(SlateColor(SpecifiedColor: Gold()))
+    return true
+}

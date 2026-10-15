@@ -1,0 +1,12 @@
+blueprint BP_Startup : Actor at /Game/Mods/Fretlib/BP_Startup
+use /Game/Mods/Fretlib/Lib_1
+
+// Spawned by the game once, at startup (the earliest mod hook): registers Fretlib's own strings (Localization/en.txt and
+// translations, copied beside the pak), such as the mod menu's title and buttons. claude/LoomConventions.md §6.
+
+// Loads Fretlib's strings and writes one line (ForceLog) saying which languages were found.
+on ReceiveBeginPlay {
+    let loc = BPL_FL_Config.LoadLocalization("Fretlib")
+    let logger = BPL_FL_Log.Configure("Fretlib", E_FL_LogLevel.Warning)
+    BPL_FL_Log.ForceLog(logger, "startup: Lib_1 r" + string(BPL_FL_Log.GetLibVersion()) + ", localization " + loc.Summary)
+}

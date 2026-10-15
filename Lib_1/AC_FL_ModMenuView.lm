@@ -1,0 +1,52 @@
+blueprint AC_FL_ModMenuView : ActorComponent at /Game/Mods/Fretlib/Lib_1/AC_FL_ModMenuView
+use /Game/Mods/Fretlib/Lib_1
+
+// Opens the Fretlib mod menu (WBP_FL_ModMenu) on F8, also while the game is paused. Declared on Fretlib's BP_MapLoad beside
+// AC_FL_ModMenu. Kept apart from AC_FL_ModMenu because the menu widget uses AC_FL_ModMenu, and Loom refuses Blueprints that
+// use each other. While the menu is open its input is UI only, so the menu closes itself; this only opens it.
+// Design: workflows/CommonLibrary/docs/ModMenuPlan.md §1, §7; probe results ConfiguratorDesign.md §8.1.
+
+category "Fretlib|ModMenu"
+
+// The menu widget, created on the first F8.
+var Panel: WBP_FL_ModMenu
+
+// Lets the hotkey work while the game is paused.
+on ReceiveBeginPlay {
+    SetTickableWhenPaused(true)
+}
+
+// Opens the menu when F8 is pressed and it isn't open, except right after it closed (the F8 that closed it is still "just
+// pressed" in that frame).
+//
+// In:  DeltaSeconds - seconds since the last tick.
+on ReceiveTick(DeltaSeconds: float) {
+    let pc = GameplayStatics.GetPlayerController(0)
+    if pc == none {
+        return
+    }
+    let hotkey = OptionManager.StringToKey("F8")
+    if !pc.WasInputKeyJustPressed(hotkey) {
+        return
+    }
+    if Panel != none {
+        if Panel.bOpen {
+            return
+        }
+        if GameplayStatics.GetRealTimeSeconds() - Panel.ClosedAt < 0.3 {
+            return
+        }
+    }
+    let owner = GetOwner()
+    if owner == none {
+        return
+    }
+    let menu = cast(owner.GetComponentByClass(AC_FL_ModMenu), AC_FL_ModMenu)
+    if menu == none {
+        return
+    }
+    if Panel == none {
+        Panel = create_widget(WBP_FL_ModMenu)
+    }
+    Panel.Open(menu, pc)
+}

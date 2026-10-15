@@ -1,0 +1,36 @@
+blueprint WBP_FL_ModMenuRow : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_ModMenuRow
+use /Game/Mods/Fretlib/Lib_1
+
+// One row of the mod menu's pane, in the staffing panel's row layout without the icon: | name | control |. The name fills the
+// left; the control sits in a fixed-width box on the right so controls line up. Step 2 shows the value as text; step 3 puts the
+// type's control there. A group row shows only its heading. Design: workflows/CommonLibrary/docs/ModMenuPlan.md §5.1.
+
+widget Root: HorizontalBox {
+    widget Name: LocTextBlock(Key: "", Justification: ETextJustify.Left) slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), Padding: Margin(Left: 10, Top: 6, Right: 10, Bottom: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center)
+    widget ControlBox: SizeBox(WidthOverride: 220, HeightOverride: 36) slot(Padding: Margin(Right: 10), HorizontalAlignment: EHorizontalAlignment.HAlign_Right, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+        widget ValueText: TextBlock(Text: "", Justification: ETextJustify.Center)
+    }
+}
+
+// The row's option.
+var Option: S_FL_ModOption
+
+// Shows an option (or a group heading) and its value.
+//
+// In:  NewOption - the row from the registry.
+//      Value - the value to show (the pending edit if any, else the applied value).
+//      bPending - whether the value is an unapplied edit (marked with *).
+// Out: none
+fn Show(NewOption: S_FL_ModOption, Value: string, bPending: bool) {
+    Option = NewOption
+    Name.SetKey(name(NewOption.NameKey))
+    if NewOption.Type == E_FL_ModOptionType.Group {
+        BPL_FL_UI.StyleText(Name, 20.0)
+        ControlBox.SetVisibility(ESlateVisibility.Collapsed)
+        return
+    }
+    BPL_FL_UI.StyleText(Name, 16.0)
+    BPL_FL_UI.StyleText(ValueText, 16.0)
+    ControlBox.SetVisibility(ESlateVisibility.Visible)
+    ValueText.SetText(text(Value + (if bPending { " *" } else { "" })))
+}

@@ -1,0 +1,335 @@
+blueprint WBP_FL_ModMenu : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_ModMenu
+use /Game/Mods/Fretlib/Lib_1
+
+// The Fretlib mod menu (layout B): a dimmed full-screen layer that swallows clicks, with a game-style frame centred on it.
+// Left: the registered mods; right: the selected mod's name, description and rows (WBP_FL_ModMenuRow); bottom: Reset to
+// defaults, Revert, Apply, Close. Opened by AC_FL_ModMenuView (F8) with input UI only; it closes itself (F8, Esc, Close) and
+// warns once before discarding unapplied changes. Reads and edits the values through AC_FL_ModMenu.
+// Design: workflows/CommonLibrary/docs/ModMenuPlan.md §5.1, §6.1; probe results ConfiguratorDesign.md §8.1.
+
+widget Root: Overlay {
+    widget Dim: Border(BrushColor: "#000000A0") slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Fill)
+    widget Window: SizeBox(WidthOverride: 1040, HeightOverride: 680) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+        widget Frame: RoundedFrameWithHeaderIcon
+    }
+    widget Content: Border(BrushColor: "#00000000", Padding: Margin(Left: 20, Top: 50, Right: 20, Bottom: 16)) {
+        widget Rows: VerticalBox {
+            widget Title: LocTextBlock(Key: "Fretlib.ModMenu.Title", Justification: ETextJustify.Center) slot(Padding: Margin(Bottom: 12), HorizontalAlignment: EHorizontalAlignment.HAlign_Center)
+            widget Body: HorizontalBox slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0)) {
+                widget ModListBox: SizeBox(WidthOverride: 270) slot(Padding: Margin(Right: 16)) {
+                    widget ModScroll: ScrollBox {
+                        widget ModList: VerticalBox
+                    }
+                }
+                widget Pane: VerticalBox slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0)) {
+                    widget ModName: LocTextBlock(Key: "", Justification: ETextJustify.Left) slot(Padding: Margin(Left: 10, Bottom: 4))
+                    widget ModDesc: LocTextBlock(Key: "", Justification: ETextJustify.Left, AutoWrapText: true) slot(Padding: Margin(Left: 10, Bottom: 10))
+                    widget OptionScroll: ScrollBox slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0)) {
+                        widget OptionList: VerticalBox
+                    }
+                }
+            }
+            widget Status: LocTextBlock(Key: "", Justification: ETextJustify.Left) slot(Padding: Margin(Left: 10, Top: 8))
+            widget Bottom: HorizontalBox slot(Padding: Margin(Top: 8), HorizontalAlignment: EHorizontalAlignment.HAlign_Right) {
+                widget ResetBox: SizeBox(WidthOverride: 250, HeightOverride: 44) slot(Padding: Margin(Left: 8)) {
+                    widget ResetButton: Arco_Button_CommonRound
+                }
+                widget RevertBox: SizeBox(WidthOverride: 160, HeightOverride: 44) slot(Padding: Margin(Left: 8)) {
+                    widget RevertButton: Arco_Button_CommonRound
+                }
+                widget ApplyBox: SizeBox(WidthOverride: 160, HeightOverride: 44) slot(Padding: Margin(Left: 8)) {
+                    widget ApplyButton: Arco_Button_CommonRound
+                }
+                widget CloseBox: SizeBox(WidthOverride: 160, HeightOverride: 44) slot(Padding: Margin(Left: 8)) {
+                    widget CloseButton: Arco_Button_CommonRound
+                }
+            }
+        }
+    }
+}
+
+// The frame's header icon (the game's "customize" sliders).
+var MenuIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-customize-100.icons8-customize-100
+
+// The map's menu state (registry, values, pending edits).
+var Menu: AC_FL_ModMenu
+// The player controller whose input the menu takes while open.
+var Pc: PlayerController
+// Whether the menu is on screen.
+var bOpen: bool = false
+// Real time (seconds) when it last closed; AC_FL_ModMenuView ignores the hotkey briefly after it, so the F8 that closed the
+// menu doesn't open it again in the same frame.
+var ClosedAt: float = -10.0
+// The mod shown in the pane (kept while the game runs).
+var SelectedMod: string = ""
+// Whether closing with unapplied changes has been warned about once (the next close discards them).
+var bCloseWarned: bool = false
+// The list's entries by mod id.
+var Entries: map<string, WBP_FL_ModMenuEntry>
+// Whether the buttons are bound and the texts styled (once per widget).
+var bSetUp: bool = false
+
+// Shows the menu, takes the player's input (UI only, so no clicks or keys reach the game) and lists the registered mods.
+//
+// In:  NewMenu - the map's AC_FL_ModMenu.
+//      NewPc - the player controller.
+// Out: none
+fn Open(NewMenu: AC_FL_ModMenu, NewPc: PlayerController) {
+    Menu = NewMenu
+    Pc = NewPc
+    SetUp()
+    AddToViewport(1000)
+    ResetButton.SetVisuals("Fretlib.ModMenu.Reset", none)
+    RevertButton.SetVisuals("Fretlib.ModMenu.Revert", none)
+    ApplyButton.SetVisuals("Fretlib.ModMenu.Apply", none)
+    CloseButton.SetVisuals("Fretlib.ModMenu.Close", none)
+    bOpen = true
+    bCloseWarned = false
+    Status.SetKey(name(""))
+    bIsFocusable = true
+    if Pc != none {
+        WidgetBlueprintLibrary.SetInputMode_UIOnlyEx(Pc, self, EMouseLockMode.DoNotLock, false)
+    }
+    RebuildModList()
+    let ids = Menu.GetModIds()
+    if ids.Length() == 0 {
+        ShowNoMods()
+        return
+    }
+    if !ids.Contains(SelectedMod) {
+        SelectedMod = ids[0]
+    }
+    SelectMod(SelectedMod)
+}
+
+// Removes the menu and gives the player's input back to the game.
+//
+// In:  none
+// Out: none
+fn Close() {
+    if !bOpen {
+        return
+    }
+    bOpen = false
+    RemoveFromParent()
+    if Pc != none {
+        WidgetBlueprintLibrary.SetInputMode_GameAndUIEx(Pc, none, EMouseLockMode.DoNotLock, false, false)
+    }
+    ClosedAt = GameplayStatics.GetRealTimeSeconds()
+}
+
+// Closes the menu, but first warns once when there are unapplied changes; closing again discards them.
+//
+// In:  none
+// Out: none
+fn RequestClose() {
+    if Menu != none {
+        if Menu.HasPending() {
+            if !bCloseWarned {
+                bCloseWarned = true
+                Status.SetKey(name("Fretlib.ModMenu.Unapplied"))
+                return
+            }
+            Menu.Revert()
+        }
+    }
+    Close()
+}
+
+// Binds the buttons, sets their labels and styles the texts and the frame (once).
+//
+// In:  none
+// Out: none
+fn SetUp() {
+    if bSetUp {
+        return
+    }
+    bSetUp = true
+    Frame.NamedSlot_93.SetContent(Content)
+    let icon = MenuIcon.load()
+    if icon != none {
+        Frame.SetIcon(icon)
+    }
+    SetButtonDefaults(ResetButton, "Fretlib.ModMenu.Reset")
+    SetButtonDefaults(RevertButton, "Fretlib.ModMenu.Revert")
+    SetButtonDefaults(ApplyButton, "Fretlib.ModMenu.Apply")
+    SetButtonDefaults(CloseButton, "Fretlib.ModMenu.Close")
+    ResetButton.OnClicked.bind(OnReset)
+    RevertButton.OnClicked.bind(OnRevert)
+    ApplyButton.OnClicked.bind(OnApply)
+    CloseButton.OnClicked.bind(OnCloseClicked)
+    BPL_FL_UI.StyleText(Title, 22.0)
+    BPL_FL_UI.StyleText(ModName, 20.0)
+    BPL_FL_UI.StyleText(ModDesc, 14.0)
+    BPL_FL_UI.StyleText(Status, 16.0)
+}
+
+// Gives one of the game's round buttons its label and no icon. The button resets itself to its defaults when it is first shown,
+// so the defaults are set too, not just the label.
+//
+// In:  Target - the button.
+//      LabelKey - string key of its label.
+// Out: none
+fn SetButtonDefaults(Target: Arco_Button_CommonRound, LabelKey: string) {
+    Target.Default_ButtonKey = LabelKey
+    Target.UseLocalization = true
+    Target.Default_Icon = none
+    Target.SetLabelText(LabelKey)
+}
+
+// Fills the list with one entry per registered mod.
+//
+// In:  none
+// Out: none
+fn RebuildModList() {
+    ModList.ClearChildren()
+    Entries.Clear()
+    for id in Menu.GetModIds() {
+        let entry = Menu.GetModEntry(id)
+        let item = create_widget(WBP_FL_ModMenuEntry)
+        item.Setup(id, entry.ReturnValue.NameKey)
+        item.Selected.bind(SelectMod)
+        ModList.AddChild(item)
+        Entries.Add(id, item)
+    }
+    RefreshMarks()
+}
+
+// Shows a mod in the pane and highlights its entry.
+//
+// In:  ModId - the mod's id.
+// Out: none
+fn SelectMod(ModId: string) {
+    SelectedMod = ModId
+    for id, item in Entries {
+        item.SetSelected(id == ModId)
+    }
+    ShowMod()
+    SetFocus()
+}
+
+// Rebuilds the pane for the selected mod: its name, description and rows with their shown values.
+//
+// In:  none
+// Out: none
+fn ShowMod() {
+    let entry = Menu.GetModEntry(SelectedMod)
+    if !entry.Found {
+        ShowNoMods()
+        return
+    }
+    ModName.SetKey(name(entry.ReturnValue.NameKey))
+    ModDesc.SetKey(name(entry.ReturnValue.DescKey))
+    OptionList.ClearChildren()
+    for option in Menu.GetRows(SelectedMod) {
+        let row = create_widget(WBP_FL_ModMenuRow)
+        let shown = Menu.GetShownValue(SelectedMod, option.OptionId)
+        let applied = Menu.GetValue(SelectedMod, option.OptionId)
+        row.Show(option, shown, shown != applied.ReturnValue)
+        OptionList.AddChild(row)
+    }
+    RefreshMarks()
+}
+
+// Shows that no mod has registered options.
+//
+// In:  none
+// Out: none
+fn ShowNoMods() {
+    ModName.SetKey(name("Fretlib.ModMenu.NoMods"))
+    ModDesc.SetKey(name(""))
+    OptionList.ClearChildren()
+}
+
+// Updates the entries' unapplied-changes marks.
+//
+// In:  none
+// Out: none
+fn RefreshMarks() {
+    for id, item in Entries {
+        item.SetPending(Menu.ModHasPending(id))
+    }
+}
+
+// Stages the selected mod's defaults (applied only with Apply).
+//
+// In:  none
+// Out: none
+fn OnReset() {
+    Menu.StageDefaults(SelectedMod)
+    ShowMod()
+    SetFocus()
+}
+
+// Drops every unapplied change.
+//
+// In:  none
+// Out: none
+fn OnRevert() {
+    Menu.Revert()
+    bCloseWarned = false
+    Status.SetKey(name(""))
+    ShowMod()
+    SetFocus()
+}
+
+// Applies every unapplied change (the menu fires the change events).
+//
+// In:  none
+// Out: none
+fn OnApply() {
+    Menu.Apply()
+    bCloseWarned = false
+    Status.SetKey(name(""))
+    ShowMod()
+    SetFocus()
+}
+
+// Closes the menu from its Close button.
+//
+// In:  none
+// Out: none
+fn OnCloseClicked() {
+    RequestClose()
+}
+
+// Esc and F8 close the menu (with the unapplied-changes warning); other keys stay in the menu.
+//
+// In:  MyGeometry - the menu's geometry.
+//      InKeyEvent - the key.
+// Out: Return - Handled for Esc and F8.
+on OnKeyDown(MyGeometry: Geometry, InKeyEvent: KeyEvent) -> EventReply {
+    let keyName = OptionManager.KeyToString(KismetInputLibrary.GetKey(InKeyEvent))
+    if keyName == "Escape" || keyName == "F8" {
+        RequestClose()
+        return WidgetBlueprintLibrary.Handled()
+    }
+    return WidgetBlueprintLibrary.Unhandled()
+}
+
+// Swallows clicks that no control used (the dimmed layer), so they don't reach the colony.
+//
+// In:  MyGeometry - the menu's geometry.
+//      MouseEvent - the click.
+// Out: Return - Handled.
+on OnMouseButtonDown(MyGeometry: Geometry, MouseEvent: PointerEvent) -> EventReply {
+    return WidgetBlueprintLibrary.Handled()
+}
+
+// Swallows releases that no control used.
+//
+// In:  MyGeometry - the menu's geometry.
+//      MouseEvent - the release.
+// Out: Return - Handled.
+on OnMouseButtonUp(MyGeometry: Geometry, MouseEvent: PointerEvent) -> EventReply {
+    return WidgetBlueprintLibrary.Handled()
+}
+
+// Swallows the mouse wheel outside the scrolling lists (camera zoom).
+//
+// In:  MyGeometry - the menu's geometry.
+//      MouseEvent - the wheel event.
+// Out: Return - Handled.
+on OnMouseWheel(MyGeometry: Geometry, MouseEvent: PointerEvent) -> EventReply {
+    return WidgetBlueprintLibrary.Handled()
+}

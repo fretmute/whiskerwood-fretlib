@@ -19,6 +19,8 @@ dispatcher ModActionPressed(ModId: string, OptionId: string)
 var Logger: S_FL_Logger
 // Registered mods by id.
 var Mods: map<string, S_FL_ModEntry>
+// Registered mod ids in registration order (the order BP_MapLoads spawn: alphabetical by install folder).
+var ModOrder: array<string>
 // Registered rows by key (<ModId>.<OptionId>, groups <ModId>.#<GroupId>).
 var Options: map<string, S_FL_ModOption>
 // Applied values by key, as saved.
@@ -95,6 +97,9 @@ fn RegisterMod(ModId: string, NameKey: string, DescKey: string) -> bool {
     entry.DescKey = DescKey
     entry.CurrentGroup = ""
     Mods.Add(ModId, entry)
+    if !ModOrder.Contains(ModId) {
+        ModOrder.Add(ModId)
+    }
     BPL_FL_Log.Debug(Logger, "mod menu: registered mod " + ModId)
     return true
 }
@@ -370,6 +375,47 @@ fn PressAction(ModId: string, OptionId: string) -> bool {
     BPL_FL_Log.Info(Logger, "mod menu: action " + ModId + "." + OptionId)
     ModActionPressed.broadcast(ModId, OptionId)
     return true
+}
+
+// The registered mods' ids, for the menu's mod list.
+//
+// In:  none
+// Out: Return - the ids in registration order.
+fn GetModIds() -> array<string> {
+    return ModOrder
+}
+
+// A registered mod's entry (name and description keys).
+//
+// In:  ModId - the mod's id.
+// Out: Return - the entry, or an empty one.
+//      Found - whether the mod is registered.
+fn GetModEntry(ModId: string, out Found: bool) -> S_FL_ModEntry {
+    let found = Mods.Find(ModId)
+    Found = found.ReturnValue
+    if !found.ReturnValue {
+        return S_FL_ModEntry(ModId: ModId)
+    }
+    return found.Value
+}
+
+// A registered mod's rows (groups and options) in registration order, for the menu's pane.
+//
+// In:  ModId - the mod's id.
+// Out: Return - the rows; empty if the mod isn't registered.
+fn GetRows(ModId: string) -> array<S_FL_ModOption> {
+    let rows: array<S_FL_ModOption> = []
+    let found = Mods.Find(ModId)
+    if !found.ReturnValue {
+        return rows
+    }
+    for key in found.Value.Keys {
+        let option = Options.Find(key)
+        if option.ReturnValue {
+            rows.Add(option.Value)
+        }
+    }
+    return rows
 }
 
 // Sets up the logger and reads the saved values.

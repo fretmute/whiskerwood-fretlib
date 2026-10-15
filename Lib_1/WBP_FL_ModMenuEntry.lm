@@ -1,0 +1,77 @@
+blueprint WBP_FL_ModMenuEntry : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_ModMenuEntry
+use /Game/Mods/Fretlib/Lib_1
+
+// One mod in the mod menu's list: the game's round text button (Arco_Button_CommonRound) with the mod's name, and a mark when
+// the mod has unapplied changes. Clicking it broadcasts Selected; the menu binds it. Design: ModMenuPlan.md §5.1.
+
+widget Root: HorizontalBox {
+    widget ButtonBox: SizeBox(WidthOverride: 230, HeightOverride: 44) slot(Padding: Margin(Top: 3, Bottom: 3), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+        widget Button: Arco_Button_CommonRound
+    }
+    widget Mark: TextBlock(Text: "*", Justification: ETextJustify.Center) slot(Padding: Margin(Left: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center)
+}
+
+// Broadcast when the entry is clicked.
+dispatcher Selected(ModId: string)
+
+// The mod this entry stands for.
+var ModId: string = ""
+// The button's own tint, kept to restore it when the entry is no longer selected.
+var NormalTint: Color
+// The label's own colour, kept to restore it when the entry is no longer selected.
+var NormalTextColour: SlateColor
+// Whether the button's click is bound (once per widget).
+var bBound: bool = false
+
+// Shows a mod. Call before the entry is added to the list.
+//
+// In:  NewModId - the mod's id.
+//      NameKey - string key of its display name.
+// Out: none
+fn Setup(NewModId: string, NameKey: string) {
+    ModId = NewModId
+    // The game's button resets its label and icon to these defaults when it is first shown, so set them, not just the label.
+    Button.Default_ButtonKey = NameKey
+    Button.UseLocalization = true
+    Button.Default_Icon = none
+    Button.SetLabelText(NameKey)
+    NormalTint = Button.Default_Button_Color
+    NormalTextColour = Button.ButtonText.ColorAndOpacity
+    BPL_FL_UI.StyleText(Mark, 18.0)
+    SetPending(false)
+    if !bBound {
+        Button.OnClicked.bind(OnButtonClicked)
+        bBound = true
+    }
+}
+
+// Highlights the entry when its mod is the one shown.
+//
+// In:  bSelected - whether this mod is selected.
+// Out: none
+fn SetSelected(bSelected: bool) {
+    if bSelected {
+        // Inverted: gold button, dark brown label (the unselected buttons' fill), so the label stays readable.
+        Button.SetBgTint(KismetMathLibrary.Conv_LinearColorToColor(BPL_FL_UI.Gold(), true))
+        Button.ButtonText.SetColorAndOpacity(SlateColor(SpecifiedColor: LinearColor(R: 0.024, G: 0.014, B: 0.005, A: 1.0)))
+    } else {
+        Button.SetBgTint(NormalTint)
+        Button.ButtonText.SetColorAndOpacity(NormalTextColour)
+    }
+}
+
+// Shows or hides the unapplied-changes mark.
+//
+// In:  bPending - whether the mod has unapplied changes.
+// Out: none
+fn SetPending(bPending: bool) {
+    Mark.SetVisibility(if bPending { ESlateVisibility.Visible } else { ESlateVisibility.Hidden })
+}
+
+// Passes the button's click on as Selected.
+//
+// In:  none
+// Out: none
+fn OnButtonClicked() {
+    Selected.broadcast(ModId)
+}
