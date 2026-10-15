@@ -5,7 +5,8 @@ use /Game/Mods/Fretlib/Lib_1
 // left; the control sits in a fixed-width box on the right so controls line up. Controls are the game's own widgets: Bool an
 // arcoToggle; Int and Float the round -/+ buttons with the value between; Choice the round buttons as arrows around the chosen
 // key's text; Text a text box; Key the game's key icon (or the key's name) and a Change button that captures the next key;
-// Action a Run button. Edits are staged in
+// Action a Run button; IntField and FloatField a number box between the -/+ buttons (checked when committed). The name shows the
+// game's own tooltip (TooltipFrame, in a gold outline: WBP_FL_ModMenuTooltip) with the option's name and description; only the name, so it never covers the controls. Edits are staged in
 // AC_FL_ModMenu (applied with the menu's Apply), and Edited tells the menu to update its marks. A group row shows only its
 // heading. Design: workflows/CommonLibrary/docs/ModMenuPlan.md §4, §5.1, §6.1.
 
@@ -25,6 +26,7 @@ widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Ri
                     widget ValueArea: Overlay slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
                         widget ValueText: TextBlock(Text: "", Justification: ETextJustify.Center) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
                         widget ChoiceText: LocTextBlock(Key: "", Justification: ETextJustify.Center) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                        widget NumberInput: EditableTextBox(Justification: ETextJustify.Center) slot(Padding: Margin(Left: 6, Right: 6), HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center)
                     }
                     widget RightBox: SizeBox(WidthOverride: 30, HeightOverride: 30) slot(VerticalAlignment: EVerticalAlignment.VAlign_Center) {
                         widget RightButton: RoundedButton
@@ -70,6 +72,8 @@ var bBound: bool = false
 var bShown: bool = false
 // Whether a Key row is waiting for the key to bind (after Change was clicked).
 var bCapturing: bool = false
+// Whether the number box is showing a refused entry (red until the player types again).
+var bNumberError: bool = false
 
 // Shows an option (or a group heading) with the control for its type and its shown value. Call before the row is added to the pane.
 //
@@ -102,6 +106,13 @@ fn Show(NewOption: S_FL_ModOption, NewMenu: AC_FL_ModMenu) {
     }
     LeftLine.SetVisibility(ESlateVisibility.Collapsed)
     RightLine.SetVisibility(ESlateVisibility.Collapsed)
+    if NewOption.DescKey != "" {
+        // The game's tooltip: the option's name as the title, its description as the detail. On the name only.
+        let tip = create_widget(WBP_FL_ModMenuTooltip)
+        tip.Setup(NewOption.NameKey, NewOption.DescKey)
+        Name.SetToolTip(tip)
+        Name.SetVisibility(ESlateVisibility.Visible)
+    }
     BPL_FL_UI.StyleMenuText(Name, 22.0, true)
     BPL_FL_UI.StyleMenuText(Mark, 22.0, true)
     BPL_FL_UI.StyleMenuText(ValueText, 22.0, true)
@@ -134,7 +145,8 @@ fn MakePill() {
 // Out: none
 fn SetUpControls() {
     let isBool = Option.Type == E_FL_ModOptionType.Bool
-    let isNumber = Option.Type == E_FL_ModOptionType.Int || Option.Type == E_FL_ModOptionType.Float
+    let isField = Option.Type == E_FL_ModOptionType.IntField || Option.Type == E_FL_ModOptionType.FloatField
+    let isNumber = Option.Type == E_FL_ModOptionType.Int || Option.Type == E_FL_ModOptionType.Float || isField
     let isChoice = Option.Type == E_FL_ModOptionType.Choice
     let isText = Option.Type == E_FL_ModOptionType.Text
     let isKey = Option.Type == E_FL_ModOptionType.Key
@@ -145,7 +157,8 @@ fn SetUpControls() {
     KeyArea.SetVisibility(if isKey { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     ActionBox.SetVisibility(if isAction { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     PlainText.SetVisibility(ESlateVisibility.Collapsed)
-    ValueText.SetVisibility(if isNumber { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    ValueText.SetVisibility(if isNumber && !isField { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    NumberInput.SetVisibility(if isField { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     ChoiceText.SetVisibility(if isChoice { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     if isNumber {
         SetButtonIcon(LeftButton, MinusIcon.load(), false)
@@ -156,7 +169,10 @@ fn SetUpControls() {
         SetButtonIcon(RightButton, ArrowIcon.load(), false)
     }
     if isText {
-        StyleTextInput()
+        StyleInputBox(TextInput)
+    }
+    if isField {
+        StyleInputBox(NumberInput)
     }
     if isKey {
         BPL_FL_UI.SetupMenuButton(KeyButton, "Fretlib.ModMenu.Change", 18.0)
@@ -170,6 +186,8 @@ fn SetUpControls() {
     }
     bBound = true
     TextInput.OnTextChanged.bind(OnTextEdited)
+    NumberInput.OnTextCommitted.bind(OnNumberCommitted)
+    NumberInput.OnTextChanged.bind(OnNumberTyping)
     KeyButton.OnClicked.bind(OnKeyButtonClicked)
     ActionButton.OnClicked.bind(OnActionClicked)
     Toggle.clickActionEnable = HudAction(action: "Fretlib.ModMenu.On")
@@ -181,12 +199,13 @@ fn SetUpControls() {
     RightButton.OnHudActionDelegate.bind(OnHudAction)
 }
 
-// Styles the text box like the menu: Germania One in gold on a dark brown rounded background (lighter when hovered or focused).
+// Styles a text or number box like the menu: Germania One in gold on a dark brown rounded background (lighter when hovered or
+// focused).
 //
-// In:  none
+// In:  Target - the box.
 // Out: none
-fn StyleTextInput() {
-    let boxStyle = TextInput.WidgetStyle
+fn StyleInputBox(Target: EditableTextBox) {
+    let boxStyle = Target.WidgetStyle
     let textStyle = boxStyle.TextStyle
     textStyle.Font = BPL_FL_UI.MenuFont(textStyle.Font, 20.0)
     textStyle.ColorAndOpacity = SlateColor(SpecifiedColor: BPL_FL_UI.Gold())
@@ -198,7 +217,7 @@ fn StyleTextInput() {
     boxStyle.BackgroundImageHovered = BPL_FL_UI.RoundedBrush(boxStyle.BackgroundImageHovered, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
     boxStyle.BackgroundImageFocused = BPL_FL_UI.RoundedBrush(boxStyle.BackgroundImageFocused, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
     boxStyle.Padding = Margin(Left: 12, Top: 4, Right: 12, Bottom: 4)
-    TextInput.WidgetStyle = boxStyle
+    Target.WidgetStyle = boxStyle
 }
 
 // Gives one of the round buttons an icon in the game's gold.
@@ -247,6 +266,13 @@ fn Refresh() {
         return
     }
     if Option.Type == E_FL_ModOptionType.Action {
+        return
+    }
+    if Option.Type == E_FL_ModOptionType.IntField || Option.Type == E_FL_ModOptionType.FloatField {
+        // Not while the player is typing: setting the text would move the cursor.
+        if !NumberInput.HasKeyboardFocus() {
+            NumberInput.SetText(NumberDisplay(shown))
+        }
         return
     }
     if Option.Type == E_FL_ModOptionType.Bool {
@@ -331,6 +357,67 @@ fn OnActionClicked() {
     Menu.PressAction(Option.ModId, Option.OptionId)
 }
 
+// A number field's value as shown in its box: a whole number for IntField, the option's decimal places for FloatField.
+//
+// In:  Value - the stored value.
+// Out: Return - the text.
+fn NumberDisplay(Value: string) -> text {
+    if Option.Type == E_FL_ModOptionType.FloatField {
+        return FormatFloat(float(Value))
+    }
+    return text(Value)
+}
+
+// Checks a committed number box: a number is rounded (whole, or to the option's decimal places), clamped to the range and
+// staged; anything else is refused, shown in red, and the box goes back to the last good value. Esc (cleared) only restores
+// the box.
+//
+// In:  NewText - the box's text.
+//      Method - how it was committed (Enter, focus lost, cleared by Esc).
+// Out: none
+fn OnNumberCommitted(NewText: ref text, Method: ETextCommit) {
+    let entered = KismetStringLibrary.TrimTrailing(KismetStringLibrary.Trim(string(NewText)))
+    let current = Menu.GetShownValue(Option.ModId, Option.OptionId)
+    if Method == ETextCommit.OnCleared {
+        NumberInput.SetText(NumberDisplay(current))
+        return
+    }
+    if !KismetStringLibrary.IsNumeric(entered) {
+        bNumberError = true
+        NumberInput.SetForegroundColor(LinearColor(R: 0.8, G: 0.12, B: 0.08, A: 1.0))
+        NumberInput.SetText(NumberDisplay(current))
+        return
+    }
+    let typed = float(entered)
+    let cleaned = ""
+    if Option.Type == E_FL_ModOptionType.IntField {
+        cleaned = string(KismetMathLibrary.Clamp(KismetMathLibrary.Round(typed), int(Option.Min), int(Option.Max)))
+    } else {
+        let scale = 1.0
+        for i in 1..Option.Decimals {
+            scale = scale * 10.0
+        }
+        let rounded = float(KismetMathLibrary.Round(typed * scale)) / scale
+        cleaned = string(KismetMathLibrary.FClamp(rounded, Option.Min, Option.Max))
+    }
+    Menu.StageValue(Option.ModId, Option.OptionId, cleaned)
+    let staged = Menu.GetShownValue(Option.ModId, Option.OptionId)
+    NumberInput.SetText(NumberDisplay(staged))
+    RefreshMark()
+    Edited.broadcast()
+}
+
+// Takes the refused-entry red off the number box as soon as the player types again.
+//
+// In:  NewText - the box's text now.
+// Out: none
+fn OnNumberTyping(NewText: ref text) {
+    if bNumberError {
+        bNumberError = false
+        NumberInput.SetForegroundColor(BPL_FL_UI.Gold())
+    }
+}
+
 // A number with the option's decimal places.
 //
 // In:  Value - the number.
@@ -355,11 +442,11 @@ fn OnHudAction(Action: HudAction) {
         newValue = "false"
     }
     if Action.action == "Fretlib.ModMenu.Left" || Action.action == "Fretlib.ModMenu.Right" {
-        if Option.Type == E_FL_ModOptionType.Int {
+        if Option.Type == E_FL_ModOptionType.Int || Option.Type == E_FL_ModOptionType.IntField {
             let stepped = int(shown) + direction * int(Option.Step)
             newValue = string(KismetMathLibrary.Clamp(stepped, int(Option.Min), int(Option.Max)))
         }
-        if Option.Type == E_FL_ModOptionType.Float {
+        if Option.Type == E_FL_ModOptionType.Float || Option.Type == E_FL_ModOptionType.FloatField {
             let steps = KismetMathLibrary.Round(float(shown) / Option.Step) + direction
             let f = KismetMathLibrary.FClamp(float(steps) * Option.Step, Option.Min, Option.Max)
             newValue = string(f)

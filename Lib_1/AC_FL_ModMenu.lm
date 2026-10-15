@@ -161,7 +161,7 @@ fn Normalize(Row: S_FL_ModOption, Value: string, out Valid: bool) -> string {
         Valid = false
         return Row.Default
     }
-    if Row.Type == E_FL_ModOptionType.Int {
+    if Row.Type == E_FL_ModOptionType.Int || Row.Type == E_FL_ModOptionType.IntField {
         if !KismetStringLibrary.IsNumeric(v) {
             Valid = false
             return Row.Default
@@ -175,7 +175,7 @@ fn Normalize(Row: S_FL_ModOption, Value: string, out Valid: bool) -> string {
         }
         return string(i)
     }
-    if Row.Type == E_FL_ModOptionType.Float {
+    if Row.Type == E_FL_ModOptionType.Float || Row.Type == E_FL_ModOptionType.FloatField {
         if !KismetStringLibrary.IsNumeric(v) {
             Valid = false
             return Row.Default

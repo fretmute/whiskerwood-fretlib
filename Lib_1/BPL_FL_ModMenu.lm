@@ -106,6 +106,48 @@ fn AddFloat(ModId: string, OptionId: string, NameKey: string, DescKey: string, D
     return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Float, NameKey: NameKey, DescKey: DescKey, Default: string(Default), Min: Min, Max: Max, Step: Step, Decimals: Decimals))
 }
 
+// Adds a whole-number option shown as a number box between -/+ buttons: the player types a value or steps it. Same value,
+// range and storage as AddInt (read it with GetInt); only the control differs.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Default - its value until the player changes it.
+//      Min - the smallest value.
+//      Max - the largest value.
+//      Step - the change per click (1 or more).
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddIntField(ModId: string, OptionId: string, NameKey: string, DescKey: string, Default: int, Min: int, Max: int, Step: int) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    let stepValue = if Step < 1 { 1 } else { Step }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.IntField, NameKey: NameKey, DescKey: DescKey, Default: string(Default), Min: float(Min), Max: float(Max), Step: float(stepValue)))
+}
+
+// Adds a number option with decimals shown as a number box between -/+ buttons: the player types a value or steps it. Same
+// value, range and storage as AddFloat (read it with GetFloat); only the control differs.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Default - its value until the player changes it.
+//      Min - the smallest value.
+//      Max - the largest value.
+//      Step - the change per click.
+//      Decimals - decimal places shown, and typed values are rounded to.
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddFloatField(ModId: string, OptionId: string, NameKey: string, DescKey: string, Default: float, Min: float, Max: float, Step: float, Decimals: int) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.FloatField, NameKey: NameKey, DescKey: DescKey, Default: string(Default), Min: Min, Max: Max, Step: Step, Decimals: Decimals))
+}
+
 // Adds an option whose value is one of a list, cycled with arrows.
 //
 // In:  ModId - the mod's id.

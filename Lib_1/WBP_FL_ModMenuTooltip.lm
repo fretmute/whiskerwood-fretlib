@@ -1,0 +1,31 @@
+blueprint WBP_FL_ModMenuTooltip : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_ModMenuTooltip
+use /Game/Mods/Fretlib/Lib_1
+
+// The mod menu's tooltip: the game's own tooltip (TooltipFrame, a title and a detail line from string keys) inside a thin gold
+// rounded outline, so it stands out against the menu's dark background. Set on a row's name by WBP_FL_ModMenuRow.
+// Design: workflows/CommonLibrary/docs/ModMenuPlan.md §4.1.
+
+widget Outline: Border(BrushColor: "#00000000", Padding: Margin(Left: 2, Top: 2, Right: 2, Bottom: 2)) {
+    widget Frame: TooltipFrame
+}
+
+// Shows a title and a detail text, and draws the gold outline.
+//
+// In:  TitleKey - string key of the title (the option's name).
+//      DetailKey - string key of the detail (the option's description).
+// Out: none
+fn Setup(TitleKey: string, DetailKey: string) {
+    Frame.ConfigureTooltip_AsText(TitleKey, DetailKey)
+    let brush = Outline.Background
+    brush.DrawAs = ESlateBrushDrawType.RoundedBox
+    brush.TintColor = SlateColor(SpecifiedColor: LinearColor(R: 0.0, G: 0.0, B: 0.0, A: 0.0))
+    let outline = brush.OutlineSettings
+    outline.RoundingType = ESlateBrushRoundingType.FixedRadius
+    outline.CornerRadii = Vector4(X: 6.0, Y: 6.0, Z: 6.0, W: 6.0)
+    outline.Width = 2.0
+    outline.Color = SlateColor(SpecifiedColor: BPL_FL_UI.Gold())
+    outline.bUseBrushTransparency = false
+    brush.OutlineSettings = outline
+    Outline.SetBrush(brush)
+    Outline.SetBrushColor(LinearColor(R: 1.0, G: 1.0, B: 1.0, A: 1.0))
+}

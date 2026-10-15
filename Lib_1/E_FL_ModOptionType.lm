@@ -17,4 +17,8 @@ enum E_FL_ModOptionType at /Game/Mods/Fretlib/Lib_1/E_FL_ModOptionType {
     Key
     // A button with no value.
     Action
+    // A whole number in a range, typed in a box between -/+ buttons.
+    IntField
+    // A number with decimals in a range, typed in a box between -/+ buttons.
+    FloatField
 }
