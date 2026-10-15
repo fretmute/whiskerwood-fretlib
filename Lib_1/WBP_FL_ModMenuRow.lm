@@ -4,7 +4,7 @@ use /Game/Mods/Fretlib/Lib_1
 // One row of the mod menu's pane, in the staffing panel's row layout without the icon: | name | control |. The name fills the
 // left; the control sits in a fixed-width box on the right so controls line up. Controls are the game's own widgets: Bool an
 // arcoToggle; Int and Float the round -/+ buttons with the value between; Choice the round buttons as arrows around the chosen
-// key's text; Text a text box; Key the game's key icon (or the key's name) and a Change button that captures the next key;
+// key's text (a dropdown instead for lists over 6 choices, and always for Dropdown); Text a text box; Key the game's key icon (or the key's name) and a Change button that captures the next key;
 // Action a Run button; IntField and FloatField a number box between the -/+ buttons (checked when committed). The name shows the
 // game's own tooltip (TooltipFrame, in a gold outline: WBP_FL_ModMenuTooltip) with the option's name and description; only the name, so it never covers the controls. Edits are staged in
 // AC_FL_ModMenu (applied with the menu's Apply), and Edited tells the menu to update its marks. A group row shows only its
@@ -48,6 +48,8 @@ widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Ri
                 widget ActionBox: SizeBox(HeightOverride: 36) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
                     widget ActionButton: Arco_Button_CommonRound
                 }
+                widget Combo: ComboBoxString(Font: SlateFontInfo(FontObject: /Game/Assets/Fonts/Germania_One/GermaniaOne-Regular_Font.GermaniaOne-Regular_Font, TypefaceFontName: "Default", Size: 20), ForegroundColor: "#E0C27D") slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                widget Translator: LocTextBlock(Key: "") slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
             }
         }
     }
@@ -74,6 +76,8 @@ var bShown: bool = false
 var bCapturing: bool = false
 // Whether the number box is showing a refused entry (red until the player types again).
 var bNumberError: bool = false
+// Choice lists longer than this show a dropdown instead of the arrows (ModMenuPlan.md §4).
+var DropdownAbove: int = 6
 
 // Shows an option (or a group heading) with the control for its type and its shown value. Call before the row is added to the pane.
 //
@@ -147,7 +151,9 @@ fn SetUpControls() {
     let isBool = Option.Type == E_FL_ModOptionType.Bool
     let isField = Option.Type == E_FL_ModOptionType.IntField || Option.Type == E_FL_ModOptionType.FloatField
     let isNumber = Option.Type == E_FL_ModOptionType.Int || Option.Type == E_FL_ModOptionType.Float || isField
-    let isChoice = Option.Type == E_FL_ModOptionType.Choice
+    let isList = Option.Type == E_FL_ModOptionType.Choice || Option.Type == E_FL_ModOptionType.Dropdown
+    let isDropdown = UsesDropdown()
+    let isChoice = isList && !isDropdown
     let isText = Option.Type == E_FL_ModOptionType.Text
     let isKey = Option.Type == E_FL_ModOptionType.Key
     let isAction = Option.Type == E_FL_ModOptionType.Action
@@ -157,6 +163,11 @@ fn SetUpControls() {
     KeyArea.SetVisibility(if isKey { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     ActionBox.SetVisibility(if isAction { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     PlainText.SetVisibility(ESlateVisibility.Collapsed)
+    Combo.SetVisibility(if isDropdown { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    Translator.SetVisibility(ESlateVisibility.Collapsed)
+    if isDropdown {
+        FillDropdown()
+    }
     ValueText.SetVisibility(if isNumber && !isField { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     NumberInput.SetVisibility(if isField { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     ChoiceText.SetVisibility(if isChoice { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
@@ -188,6 +199,7 @@ fn SetUpControls() {
     TextInput.OnTextChanged.bind(OnTextEdited)
     NumberInput.OnTextCommitted.bind(OnNumberCommitted)
     NumberInput.OnTextChanged.bind(OnNumberTyping)
+    Combo.OnSelectionChanged.bind(OnDropdownChanged)
     KeyButton.OnClicked.bind(OnKeyButtonClicked)
     ActionButton.OnClicked.bind(OnActionClicked)
     Toggle.clickActionEnable = HudAction(action: "Fretlib.ModMenu.On")
@@ -291,7 +303,11 @@ fn Refresh() {
         ValueText.SetText(FormatFloat(float(shown)))
         return
     }
-    if Option.Type == E_FL_ModOptionType.Choice {
+    if Option.Type == E_FL_ModOptionType.Choice || Option.Type == E_FL_ModOptionType.Dropdown {
+        if UsesDropdown() {
+            Combo.SetSelectedIndex(Option.Choices.Find(shown))
+            return
+        }
         ChoiceText.SetKey(name(shown))
         return
     }
@@ -355,6 +371,88 @@ fn OnKeyButtonClicked() {
 // Out: none
 fn OnActionClicked() {
     Menu.PressAction(Option.ModId, Option.OptionId)
+}
+
+// Whether the option shows a dropdown: always for Dropdown, and for Choice when its list is longer than DropdownAbove.
+//
+// In:  none
+// Out: Return - true for a dropdown, false for the arrows.
+pure fn UsesDropdown() -> bool {
+    if Option.Type == E_FL_ModOptionType.Dropdown {
+        return true
+    }
+    return Option.Type == E_FL_ModOptionType.Choice && Option.Choices.Length() > DropdownAbove
+}
+
+// Fills the dropdown with the choices' translated names (read back from the hidden Translator text block, which the game
+// resolves) and styles it like the menu: a dark brown rounded box, gold text and arrow, a dark list.
+//
+// In:  none
+// Out: none
+fn FillDropdown() {
+    Combo.ClearOptions()
+    for key in Option.Choices {
+        Translator.SetKey(name(key))
+        let label = string(Translator.GetText())
+        Combo.AddOption(if label == "" { key } else { label })
+    }
+    let comboStyle = Combo.WidgetStyle
+    let buttonStyle = comboStyle.ComboButtonStyle
+    let face = buttonStyle.ButtonStyle
+    let gold = SlateColor(SpecifiedColor: BPL_FL_UI.Gold())
+    face.Normal = BPL_FL_UI.RoundedBrush(face.Normal, LinearColor(R: 0.024, G: 0.014, B: 0.005, A: 1.0))
+    face.Hovered = BPL_FL_UI.RoundedBrush(face.Hovered, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
+    face.Pressed = BPL_FL_UI.RoundedBrush(face.Pressed, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
+    face.NormalForeground = gold
+    face.HoveredForeground = gold
+    face.PressedForeground = gold
+    buttonStyle.ButtonStyle = face
+    let arrow = buttonStyle.DownArrowImage
+    arrow.TintColor = gold
+    buttonStyle.DownArrowImage = arrow
+    // Plain drawn boxes, not the engine's default images: tinted images show their sliced edges.
+    // Opaque, so the rows behind the open list don't show through; no drop shadow (it shows as dark strips past the edges).
+    buttonStyle.MenuBorderBrush = BPL_FL_UI.BoxBrush(buttonStyle.MenuBorderBrush, LinearColor(R: 0.012, G: 0.010, B: 0.008, A: 1.0), 6.0)
+    buttonStyle.MenuBorderPadding = Margin(Left: 4, Top: 4, Right: 4, Bottom: 4)
+    buttonStyle.ShadowColorAndOpacity = LinearColor(R: 0.0, G: 0.0, B: 0.0, A: 0.0)
+    comboStyle.ComboButtonStyle = buttonStyle
+    comboStyle.MenuRowPadding = Margin(Left: 8, Top: 2, Right: 8, Bottom: 2)
+    Combo.WidgetStyle = comboStyle
+    let items = Combo.ItemStyle
+    items.TextColor = gold
+    items.SelectedTextColor = SlateColor(SpecifiedColor: LinearColor(R: 0.024, G: 0.014, B: 0.005, A: 1.0))
+    let picked = BPL_FL_UI.BoxBrush(items.ActiveBrush, BPL_FL_UI.Gold(), 4.0)
+    items.ActiveBrush = picked
+    items.InactiveBrush = picked
+    items.ActiveHighlightedBrush = picked
+    items.InactiveHighlightedBrush = picked
+    let hovered = BPL_FL_UI.BoxBrush(items.ActiveHoveredBrush, LinearColor(R: 0.10, G: 0.07, B: 0.03, A: 1.0), 4.0)
+    items.ActiveHoveredBrush = hovered
+    items.InactiveHoveredBrush = hovered
+    items.EvenRowBackgroundHoveredBrush = hovered
+    items.OddRowBackgroundHoveredBrush = hovered
+    items.EvenRowBackgroundBrush = BPL_FL_UI.NoBrush(items.EvenRowBackgroundBrush)
+    items.OddRowBackgroundBrush = BPL_FL_UI.NoBrush(items.OddRowBackgroundBrush)
+    items.SelectorFocusedBrush = BPL_FL_UI.NoBrush(items.SelectorFocusedBrush)
+    Combo.ItemStyle = items
+}
+
+// Stages the choice the player picked in the dropdown. Selections the row makes itself (to show the value) are ignored.
+//
+// In:  SelectedItem - the picked entry's text.
+//      SelectionType - how it was picked (Direct = set by code).
+// Out: none
+fn OnDropdownChanged(SelectedItem: string, SelectionType: ESelectInfo) {
+    if SelectionType == ESelectInfo.Direct {
+        return
+    }
+    let index = Combo.GetSelectedIndex()
+    if index < 0 || index >= Option.Choices.Length() {
+        return
+    }
+    Menu.StageValue(Option.ModId, Option.OptionId, Option.Choices[index])
+    RefreshMark()
+    Edited.broadcast()
 }
 
 // A number field's value as shown in its box: a whole number for IntField, the option's decimal places for FloatField.
@@ -451,7 +549,7 @@ fn OnHudAction(Action: HudAction) {
             let f = KismetMathLibrary.FClamp(float(steps) * Option.Step, Option.Min, Option.Max)
             newValue = string(f)
         }
-        if Option.Type == E_FL_ModOptionType.Choice {
+        if Option.Type == E_FL_ModOptionType.Choice || Option.Type == E_FL_ModOptionType.Dropdown {
             let count = Option.Choices.Length()
             if count > 0 {
                 let index = Option.Choices.Find(shown)

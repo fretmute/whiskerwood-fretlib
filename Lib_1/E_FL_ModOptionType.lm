@@ -21,4 +21,6 @@ enum E_FL_ModOptionType at /Game/Mods/Fretlib/Lib_1/E_FL_ModOptionType {
     IntField
     // A number with decimals in a range, typed in a box between -/+ buttons.
     FloatField
+    // One key out of a list, always shown as a dropdown (Choice uses arrows for short lists).
+    Dropdown
 }

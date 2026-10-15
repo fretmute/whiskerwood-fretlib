@@ -112,19 +112,48 @@ fn SetupMenuButton(Target: Arco_Button_CommonRound, LabelKey: string, FontSize: 
     Target.SetLabelText(LabelKey)
 }
 
-// A rounded brush (half-height corners, like the game's settings rows) in a colour, built on an existing brush (a SlateBrush
-// literal needs every field, so one is copied).
+// A rounded brush (half-height corners, like the game's settings rows) in a plain colour. Starts from an empty brush, not from
+// Base: engine brushes name their image in a field Blueprint can't clear, and that image's edge shows at rounded corners.
 //
-// In:  Base - any brush to start from.
+// In:  Base - unused (kept so callers read alike; the result never carries Base's image).
 //      Colour - its colour.
 // Out: Return - the brush.
 fn RoundedBrush(Base: SlateBrush, Colour: LinearColor) -> SlateBrush {
-    let brush = Base
+    let brush = WidgetBlueprintLibrary.NoResourceBrush()
     brush.DrawAs = ESlateBrushDrawType.RoundedBox
     brush.TintColor = SlateColor(SpecifiedColor: Colour)
     let outline = brush.OutlineSettings
     outline.RoundingType = ESlateBrushRoundingType.HalfHeightRadius
     outline.Width = 0.0
     brush.OutlineSettings = outline
+    return brush
+}
+
+// A plain drawn box with rounded corners of a fixed radius in a plain colour. Starts from an empty brush (see RoundedBrush), so
+// no image edges show.
+//
+// In:  Base - unused (kept so callers read alike).
+//      Colour - its colour.
+//      Radius - the corner radius (0 for square corners).
+// Out: Return - the brush.
+fn BoxBrush(Base: SlateBrush, Colour: LinearColor, Radius: float) -> SlateBrush {
+    let brush = WidgetBlueprintLibrary.NoResourceBrush()
+    brush.DrawAs = ESlateBrushDrawType.RoundedBox
+    brush.TintColor = SlateColor(SpecifiedColor: Colour)
+    let outline = brush.OutlineSettings
+    outline.RoundingType = ESlateBrushRoundingType.FixedRadius
+    outline.CornerRadii = Vector4(X: Radius, Y: Radius, Z: Radius, W: Radius)
+    outline.Width = 0.0
+    brush.OutlineSettings = outline
+    return brush
+}
+
+// A brush that draws nothing (e.g. to switch off a default row background).
+//
+// In:  Base - any brush to start from.
+// Out: Return - the brush.
+fn NoBrush(Base: SlateBrush) -> SlateBrush {
+    let brush = Base
+    brush.DrawAs = ESlateBrushDrawType.NoDrawType
     return brush
 }

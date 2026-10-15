@@ -189,7 +189,7 @@ fn Normalize(Row: S_FL_ModOption, Value: string, out Valid: bool) -> string {
         }
         return string(f)
     }
-    if Row.Type == E_FL_ModOptionType.Choice {
+    if Row.Type == E_FL_ModOptionType.Choice || Row.Type == E_FL_ModOptionType.Dropdown {
         if Row.Choices.Contains(v) {
             return v
         }

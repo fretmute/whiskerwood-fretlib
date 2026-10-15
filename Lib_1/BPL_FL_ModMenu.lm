@@ -165,6 +165,24 @@ fn AddChoice(ModId: string, OptionId: string, NameKey: string, DescKey: string, 
     return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Choice, NameKey: NameKey, DescKey: DescKey, Default: Default, Choices: Choices))
 }
 
+// Adds an option whose value is one of a list, always shown as a dropdown, however short the list. Same value and storage as
+// AddChoice (read it with GetString); AddChoice uses arrows for lists of 6 or fewer and a dropdown above that.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id inside the mod; stable once released.
+//      NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip).
+//      Choices - the choices' string keys, in order; the value is the chosen key.
+//      Default - the default choice (one of Choices).
+// Out: Return - false without the menu or if the mod isn't registered.
+fn AddDropdown(ModId: string, OptionId: string, NameKey: string, DescKey: string, Choices: array<string>, Default: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.AddRow(S_FL_ModOption(ModId: ModId, OptionId: OptionId, Type: E_FL_ModOptionType.Dropdown, NameKey: NameKey, DescKey: DescKey, Default: Default, Choices: Choices))
+}
+
 // Adds a free-text option.
 //
 // In:  ModId - the mod's id.
