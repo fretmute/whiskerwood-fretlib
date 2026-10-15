@@ -11,3 +11,6 @@ Fretlib.ModMenu.Apply | Apply
 Fretlib.ModMenu.Close | Close
 Fretlib.ModMenu.Unapplied | Unapplied changes: Apply them, or close again to discard.
 Fretlib.ModMenu.NoMods | No mod has registered options.
+Fretlib.ModMenu.Change | Change
+Fretlib.ModMenu.PressKey | Press a key
+Fretlib.ModMenu.Run | Run

@@ -91,3 +91,40 @@ fn CentreMenuButtonLabel(Label: TextBlock) {
     }
     Label.SetRenderTranslation(Vector2D(X: 0.0, Y: -3.0))
 }
+
+// Prepares one of the game's round text buttons for a settings-style screen: its label key, no icon, the menu font. The button
+// resets its label, icon and font to these defaults when it is first shown, so the defaults are set, not just the label.
+// Call before the button is shown; call CentreMenuButtonLabel on its ButtonText once it is.
+//
+// In:  Target - the button.
+//      LabelKey - string key of its label.
+//      FontSize - the label's size: 22 for 44-high buttons (the bottom bar), 18 for 36-high ones (in rows); a label too tall
+//                 for its button overflows downward and looks low.
+// Out: none
+fn SetupMenuButton(Target: Arco_Button_CommonRound, LabelKey: string, FontSize: float) {
+    if Target == none {
+        return
+    }
+    Target.Default_ButtonKey = LabelKey
+    Target.UseLocalization = true
+    Target.Default_Icon = none
+    Target.Font = MenuFont(Target.Font, FontSize)
+    Target.SetLabelText(LabelKey)
+}
+
+// A rounded brush (half-height corners, like the game's settings rows) in a colour, built on an existing brush (a SlateBrush
+// literal needs every field, so one is copied).
+//
+// In:  Base - any brush to start from.
+//      Colour - its colour.
+// Out: Return - the brush.
+fn RoundedBrush(Base: SlateBrush, Colour: LinearColor) -> SlateBrush {
+    let brush = Base
+    brush.DrawAs = ESlateBrushDrawType.RoundedBox
+    brush.TintColor = SlateColor(SpecifiedColor: Colour)
+    let outline = brush.OutlineSettings
+    outline.RoundingType = ESlateBrushRoundingType.HalfHeightRadius
+    outline.Width = 0.0
+    brush.OutlineSettings = outline
+    return brush
+}

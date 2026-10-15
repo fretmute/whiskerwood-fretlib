@@ -4,7 +4,8 @@ use /Game/Mods/Fretlib/Lib_1
 // One row of the mod menu's pane, in the staffing panel's row layout without the icon: | name | control |. The name fills the
 // left; the control sits in a fixed-width box on the right so controls line up. Controls are the game's own widgets: Bool an
 // arcoToggle; Int and Float the round -/+ buttons with the value between; Choice the round buttons as arrows around the chosen
-// key's text. Text, Key and Action show their value as text for now (ModMenuPlan.md §10 step 4). Edits are staged in
+// key's text; Text a text box; Key the game's key icon (or the key's name) and a Change button that captures the next key;
+// Action a Run button. Edits are staged in
 // AC_FL_ModMenu (applied with the menu's Apply), and Edited tells the menu to update its marks. A group row shows only its
 // heading. Design: workflows/CommonLibrary/docs/ModMenuPlan.md §4, §5.1, §6.1.
 
@@ -30,6 +31,21 @@ widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Ri
                     }
                 }
                 widget PlainText: TextBlock(Text: "", Justification: ETextJustify.Center) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                widget TextInput: EditableTextBox slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                widget KeyArea: HorizontalBox slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                    widget KeyIconBox: SizeBox(WidthOverride: 48, HeightOverride: 36) slot(VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                        widget KeyIconArea: Overlay {
+                            widget KeyIcon: Ui_InputHotkeyIcon slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                            widget KeyText: TextBlock(Text: "", Justification: ETextJustify.Center) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                        }
+                    }
+                    widget KeyButtonBox: SizeBox(HeightOverride: 36) slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), Padding: Margin(Left: 8), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                        widget KeyButton: Arco_Button_CommonRound
+                    }
+                }
+                widget ActionBox: SizeBox(HeightOverride: 36) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                    widget ActionButton: Arco_Button_CommonRound
+                }
             }
         }
     }
@@ -52,6 +68,8 @@ var Menu: AC_FL_ModMenu
 var bBound: bool = false
 // Whether Show has run (Construct refreshes the controls only then).
 var bShown: bool = false
+// Whether a Key row is waiting for the key to bind (after Change was clicked).
+var bCapturing: bool = false
 
 // Shows an option (or a group heading) with the control for its type and its shown value. Call before the row is added to the pane.
 //
@@ -118,9 +136,15 @@ fn SetUpControls() {
     let isBool = Option.Type == E_FL_ModOptionType.Bool
     let isNumber = Option.Type == E_FL_ModOptionType.Int || Option.Type == E_FL_ModOptionType.Float
     let isChoice = Option.Type == E_FL_ModOptionType.Choice
+    let isText = Option.Type == E_FL_ModOptionType.Text
+    let isKey = Option.Type == E_FL_ModOptionType.Key
+    let isAction = Option.Type == E_FL_ModOptionType.Action
     Toggle.SetVisibility(if isBool { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     Stepper.SetVisibility(if isNumber || isChoice { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
-    PlainText.SetVisibility(if isBool || isNumber || isChoice { ESlateVisibility.Collapsed } else { ESlateVisibility.Visible })
+    TextInput.SetVisibility(if isText { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    KeyArea.SetVisibility(if isKey { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    ActionBox.SetVisibility(if isAction { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    PlainText.SetVisibility(ESlateVisibility.Collapsed)
     ValueText.SetVisibility(if isNumber { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     ChoiceText.SetVisibility(if isChoice { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
     if isNumber {
@@ -131,10 +155,23 @@ fn SetUpControls() {
         SetButtonIcon(LeftButton, ArrowIcon.load(), true)
         SetButtonIcon(RightButton, ArrowIcon.load(), false)
     }
+    if isText {
+        StyleTextInput()
+    }
+    if isKey {
+        BPL_FL_UI.SetupMenuButton(KeyButton, "Fretlib.ModMenu.Change", 18.0)
+        BPL_FL_UI.StyleMenuText(KeyText, 18.0, true)
+    }
+    if isAction {
+        BPL_FL_UI.SetupMenuButton(ActionButton, "Fretlib.ModMenu.Run", 18.0)
+    }
     if bBound {
         return
     }
     bBound = true
+    TextInput.OnTextChanged.bind(OnTextEdited)
+    KeyButton.OnClicked.bind(OnKeyButtonClicked)
+    ActionButton.OnClicked.bind(OnActionClicked)
     Toggle.clickActionEnable = HudAction(action: "Fretlib.ModMenu.On")
     Toggle.clickActionDisable = HudAction(action: "Fretlib.ModMenu.Off")
     LeftButton.action = HudAction(action: "Fretlib.ModMenu.Left")
@@ -142,6 +179,26 @@ fn SetUpControls() {
     Toggle.OnHudActionDelegate.bind(OnHudAction)
     LeftButton.OnHudActionDelegate.bind(OnHudAction)
     RightButton.OnHudActionDelegate.bind(OnHudAction)
+}
+
+// Styles the text box like the menu: Germania One in gold on a dark brown rounded background (lighter when hovered or focused).
+//
+// In:  none
+// Out: none
+fn StyleTextInput() {
+    let boxStyle = TextInput.WidgetStyle
+    let textStyle = boxStyle.TextStyle
+    textStyle.Font = BPL_FL_UI.MenuFont(textStyle.Font, 20.0)
+    textStyle.ColorAndOpacity = SlateColor(SpecifiedColor: BPL_FL_UI.Gold())
+    boxStyle.TextStyle = textStyle
+    boxStyle.ForegroundColor = SlateColor(SpecifiedColor: BPL_FL_UI.Gold())
+    boxStyle.FocusedForegroundColor = SlateColor(SpecifiedColor: BPL_FL_UI.Gold())
+    boxStyle.BackgroundColor = SlateColor(SpecifiedColor: LinearColor(R: 1.0, G: 1.0, B: 1.0, A: 1.0))
+    boxStyle.BackgroundImageNormal = BPL_FL_UI.RoundedBrush(boxStyle.BackgroundImageNormal, LinearColor(R: 0.024, G: 0.014, B: 0.005, A: 1.0))
+    boxStyle.BackgroundImageHovered = BPL_FL_UI.RoundedBrush(boxStyle.BackgroundImageHovered, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
+    boxStyle.BackgroundImageFocused = BPL_FL_UI.RoundedBrush(boxStyle.BackgroundImageFocused, LinearColor(R: 0.045, G: 0.028, B: 0.010, A: 1.0))
+    boxStyle.Padding = Margin(Left: 12, Top: 4, Right: 12, Bottom: 4)
+    TextInput.WidgetStyle = boxStyle
 }
 
 // Gives one of the round buttons an icon in the game's gold.
@@ -172,8 +229,26 @@ fn Refresh() {
         return
     }
     let shown = Menu.GetShownValue(Option.ModId, Option.OptionId)
-    let applied = Menu.GetValue(Option.ModId, Option.OptionId)
-    Mark.SetVisibility(if shown != applied.ReturnValue { ESlateVisibility.Visible } else { ESlateVisibility.Hidden })
+    RefreshMark()
+    // The buttons are 36 high: their labels need the smaller size to fit (set again once shown, as the bottom bar does).
+    BPL_FL_UI.StyleMenuText(KeyButton.ButtonText, 18.0, false)
+    BPL_FL_UI.StyleMenuText(ActionButton.ButtonText, 18.0, false)
+    BPL_FL_UI.CentreMenuButtonLabel(KeyButton.ButtonText)
+    BPL_FL_UI.CentreMenuButtonLabel(ActionButton.ButtonText)
+    if Option.Type == E_FL_ModOptionType.Text {
+        // Not while the player is typing: setting the text would move the cursor.
+        if !TextInput.HasKeyboardFocus() {
+            TextInput.SetText(text(shown))
+        }
+        return
+    }
+    if Option.Type == E_FL_ModOptionType.Key {
+        ShowKey(shown)
+        return
+    }
+    if Option.Type == E_FL_ModOptionType.Action {
+        return
+    }
     if Option.Type == E_FL_ModOptionType.Bool {
         // The game's toggle ignores a state it believes it already has, and a new toggle believes it is off while drawn with
         // its knob on the right; switching through the opposite state makes it redraw either way.
@@ -195,6 +270,65 @@ fn Refresh() {
         return
     }
     PlainText.SetText(text(shown))
+}
+
+// Shows or hides the unapplied-changes mark.
+//
+// In:  none
+// Out: none
+fn RefreshMark() {
+    let shown = Menu.GetShownValue(Option.ModId, Option.OptionId)
+    let applied = Menu.GetValue(Option.ModId, Option.OptionId)
+    Mark.SetVisibility(if shown != applied.ReturnValue { ESlateVisibility.Visible } else { ESlateVisibility.Hidden })
+}
+
+// Shows a key as the game shows keybinds: its input icon (the game maps the key), or its name for keys without one (e.g. the
+// digit keys). The Change button reads "Press a key" while capturing.
+//
+// In:  KeyName - the key's name, as OptionManager.KeyToString writes it.
+// Out: none
+fn ShowKey(KeyName: string) {
+    KeyButton.SetLabelText(if bCapturing { "Fretlib.ModMenu.PressKey" } else { "Fretlib.ModMenu.Change" })
+    let iconId = ArcoGameInstance.FKeyToInputIcon(self, OptionManager.StringToKey(KeyName))
+    if iconId != EInputIconButton.None {
+        KeyIcon.ButtonToShow = iconId
+        KeyIcon.SetButtonToShow(iconId)
+        KeyIcon.SetVisibility(ESlateVisibility.Visible)
+        KeyText.SetVisibility(ESlateVisibility.Collapsed)
+    } else {
+        KeyText.SetText(text(KeyName))
+        KeyText.SetVisibility(ESlateVisibility.Visible)
+        KeyIcon.SetVisibility(ESlateVisibility.Collapsed)
+    }
+}
+
+// Stages the text box's text as it is typed.
+//
+// In:  NewText - the box's text now.
+// Out: none
+fn OnTextEdited(NewText: ref text) {
+    Menu.StageValue(Option.ModId, Option.OptionId, string(NewText))
+    RefreshMark()
+    Edited.broadcast()
+}
+
+// Starts capturing a key: the row takes keyboard focus and the next key pressed (Esc cancels) becomes the pending value.
+//
+// In:  none
+// Out: none
+fn OnKeyButtonClicked() {
+    bCapturing = true
+    bIsFocusable = true
+    SetKeyboardFocus()
+    Refresh()
+}
+
+// Fires the option's action at once (actions aren't pending).
+//
+// In:  none
+// Out: none
+fn OnActionClicked() {
+    Menu.PressAction(Option.ModId, Option.OptionId)
 }
 
 // A number with the option's decimal places.
@@ -251,7 +385,38 @@ fn OnHudAction(Action: HudAction) {
 on Construct {
     if bShown {
         if Option.Type != E_FL_ModOptionType.Group {
+            BPL_FL_UI.CentreMenuButtonLabel(KeyButton.ButtonText)
+            BPL_FL_UI.CentreMenuButtonLabel(ActionButton.ButtonText)
             Refresh()
         }
+    }
+}
+
+// While capturing a key, takes the next key pressed as the pending value (Esc cancels); other keys go on to the menu.
+//
+// In:  MyGeometry - the row's geometry.
+//      InKeyEvent - the key.
+// Out: Return - Handled while capturing, Unhandled otherwise.
+on OnKeyDown(MyGeometry: Geometry, InKeyEvent: KeyEvent) -> EventReply {
+    if !bCapturing {
+        return WidgetBlueprintLibrary.Unhandled()
+    }
+    let pressed = OptionManager.KeyToString(KismetInputLibrary.GetKey(InKeyEvent))
+    bCapturing = false
+    if pressed != "Escape" {
+        Menu.StageValue(Option.ModId, Option.OptionId, pressed)
+    }
+    Refresh()
+    Edited.broadcast()
+    return WidgetBlueprintLibrary.Handled()
+}
+
+// Stops capturing a key if the row loses keyboard focus (e.g. the player clicks elsewhere).
+//
+// In:  InFocusEvent - the focus change.
+on OnFocusLost(InFocusEvent: FocusEvent) {
+    if bCapturing {
+        bCapturing = false
+        Refresh()
     }
 }

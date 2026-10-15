@@ -1,15 +1,16 @@
 blueprint WBP_FL_ModMenu : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_ModMenu
 use /Game/Mods/Fretlib/Lib_1
 
-// The Fretlib mod menu (layout B): a dimmed full-screen layer that swallows clicks, with a game-style frame centred on it.
+// The Fretlib mod menu (layout B): a dimmed full-screen layer that swallows clicks, with a game-style frame centred on it,
+// 1040 wide and as tall as the screen allows (240 above, 110 below; at least 600).
 // Left: the registered mods; right: the selected mod's name, description and rows (WBP_FL_ModMenuRow); bottom: Reset to
-// defaults, Revert, Apply, Close. Opened by AC_FL_ModMenuView (F8) with input UI only; it closes itself (F8, Esc, Close) and
-// warns once before discarding unapplied changes. Reads and edits the values through AC_FL_ModMenu.
+// defaults, Revert, Apply, Close. Opened by AC_FL_ModMenuView (F8) with input UI only; it closes itself: Esc cancels (drops
+// unapplied changes), F8 and Close warn once before discarding them. Reads and edits the values through AC_FL_ModMenu.
 // Design: workflows/CommonLibrary/docs/ModMenuPlan.md §5.1, §6.1; probe results ConfiguratorDesign.md §8.1.
 
 widget Root: Overlay {
     widget Dim: Border(BrushColor: "#000000A0") slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Fill)
-    widget Window: SizeBox(WidthOverride: 1040, HeightOverride: 680) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+    widget Window: SizeBox(WidthOverride: 1040, MinDesiredHeight: 600) slot(Padding: Margin(Top: 240, Bottom: 110), HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Fill) {
         widget Frame: RoundedFrameWithHeaderIcon
     }
     widget Content: Border(BrushColor: "#00000000", Padding: Margin(Left: 20, Top: 50, Right: 20, Bottom: 16)) {
@@ -281,13 +282,12 @@ fn HideStatus() {
     Status.SetVisibility(ESlateVisibility.Hidden)
 }
 
-// Updates the mod list's marks after a row staged an edit, and keeps keyboard focus in the menu.
+// Updates the mod list's marks after a row staged an edit. Focus stays where it is (a text box being typed in keeps it).
 //
 // In:  none
 // Out: none
 fn OnRowEdited() {
     RefreshMarks()
-    SetFocus()
 }
 
 // Stages the selected mod's defaults (applied only with Apply).
@@ -332,14 +332,22 @@ fn OnCloseClicked() {
     RequestClose()
 }
 
-// Esc and F8 close the menu (with the unapplied-changes warning); other keys stay in the menu.
+// Esc cancels: drops unapplied changes and closes at once. F8 closes with the unapplied-changes warning (as Close does), so a
+// stray press doesn't lose edits. Other keys stay in the menu.
 //
 // In:  MyGeometry - the menu's geometry.
 //      InKeyEvent - the key.
 // Out: Return - Handled for Esc and F8.
 on OnKeyDown(MyGeometry: Geometry, InKeyEvent: KeyEvent) -> EventReply {
     let keyName = OptionManager.KeyToString(KismetInputLibrary.GetKey(InKeyEvent))
-    if keyName == "Escape" || keyName == "F8" {
+    if keyName == "Escape" {
+        if Menu != none {
+            Menu.Revert()
+        }
+        Close()
+        return WidgetBlueprintLibrary.Handled()
+    }
+    if keyName == "F8" {
         RequestClose()
         return WidgetBlueprintLibrary.Handled()
     }
