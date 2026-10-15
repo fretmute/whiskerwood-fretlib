@@ -16,7 +16,7 @@ widget Root: Overlay {
         widget Rows: VerticalBox {
             widget Title: LocTextBlock(Key: "Fretlib.ModMenu.Title", Justification: ETextJustify.Center) slot(Padding: Margin(Bottom: 12), HorizontalAlignment: EHorizontalAlignment.HAlign_Center)
             widget Body: HorizontalBox slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0)) {
-                widget ModListBox: SizeBox(WidthOverride: 270) slot(Padding: Margin(Right: 16)) {
+                widget ModListBox: SizeBox(MinDesiredWidth: 250, MaxDesiredWidth: 420) slot(Padding: Margin(Right: 16)) {
                     widget ModScroll: ScrollBox {
                         widget ModList: VerticalBox
                     }
@@ -83,9 +83,17 @@ fn Open(NewMenu: AC_FL_ModMenu, NewPc: PlayerController) {
     RevertButton.SetVisuals("Fretlib.ModMenu.Revert", none)
     ApplyButton.SetVisuals("Fretlib.ModMenu.Apply", none)
     CloseButton.SetVisuals("Fretlib.ModMenu.Close", none)
+    BPL_FL_UI.StyleMenuText(ResetButton.ButtonText, 22.0, false)
+    BPL_FL_UI.CentreMenuButtonLabel(ResetButton.ButtonText)
+    BPL_FL_UI.StyleMenuText(RevertButton.ButtonText, 22.0, false)
+    BPL_FL_UI.CentreMenuButtonLabel(RevertButton.ButtonText)
+    BPL_FL_UI.StyleMenuText(ApplyButton.ButtonText, 22.0, false)
+    BPL_FL_UI.CentreMenuButtonLabel(ApplyButton.ButtonText)
+    BPL_FL_UI.StyleMenuText(CloseButton.ButtonText, 22.0, false)
+    BPL_FL_UI.CentreMenuButtonLabel(CloseButton.ButtonText)
     bOpen = true
     bCloseWarned = false
-    Status.SetKey(name(""))
+    HideStatus()
     bIsFocusable = true
     if Pc != none {
         WidgetBlueprintLibrary.SetInputMode_UIOnlyEx(Pc, self, EMouseLockMode.DoNotLock, false)
@@ -128,6 +136,7 @@ fn RequestClose() {
             if !bCloseWarned {
                 bCloseWarned = true
                 Status.SetKey(name("Fretlib.ModMenu.Unapplied"))
+                Status.SetVisibility(ESlateVisibility.Visible)
                 return
             }
             Menu.Revert()
@@ -158,10 +167,10 @@ fn SetUp() {
     RevertButton.OnClicked.bind(OnRevert)
     ApplyButton.OnClicked.bind(OnApply)
     CloseButton.OnClicked.bind(OnCloseClicked)
-    BPL_FL_UI.StyleText(Title, 22.0)
-    BPL_FL_UI.StyleText(ModName, 20.0)
-    BPL_FL_UI.StyleText(ModDesc, 14.0)
-    BPL_FL_UI.StyleText(Status, 16.0)
+    BPL_FL_UI.StyleMenuText(Title, 30.0, true)
+    BPL_FL_UI.StyleMenuText(ModName, 26.0, true)
+    BPL_FL_UI.StyleMenuText(ModDesc, 18.0, true)
+    BPL_FL_UI.StyleMenuText(Status, 20.0, true)
 }
 
 // Gives one of the game's round buttons its label and no icon. The button resets itself to its defaults when it is first shown,
@@ -174,6 +183,7 @@ fn SetButtonDefaults(Target: Arco_Button_CommonRound, LabelKey: string) {
     Target.Default_ButtonKey = LabelKey
     Target.UseLocalization = true
     Target.Default_Icon = none
+    Target.Font = BPL_FL_UI.MenuFont(Target.Font, 22.0)
     Target.SetLabelText(LabelKey)
 }
 
@@ -189,7 +199,10 @@ fn RebuildModList() {
         let item = create_widget(WBP_FL_ModMenuEntry)
         item.Setup(id, entry.ReturnValue.NameKey)
         item.Selected.bind(SelectMod)
-        ModList.AddChild(item)
+        let itemSlot = cast(ModList.AddChild(item), VerticalBoxSlot)
+        if itemSlot != none {
+            itemSlot.SetHorizontalAlignment(EHorizontalAlignment.HAlign_Fill)
+        }
         Entries.Add(id, item)
     }
     RefreshMarks()
@@ -223,10 +236,12 @@ fn ShowMod() {
     OptionList.ClearChildren()
     for option in Menu.GetRows(SelectedMod) {
         let row = create_widget(WBP_FL_ModMenuRow)
-        let shown = Menu.GetShownValue(SelectedMod, option.OptionId)
-        let applied = Menu.GetValue(SelectedMod, option.OptionId)
-        row.Show(option, shown, shown != applied.ReturnValue)
-        OptionList.AddChild(row)
+        row.Show(option, Menu)
+        row.Edited.bind(OnRowEdited)
+        let rowSlot = cast(OptionList.AddChild(row), VerticalBoxSlot)
+        if rowSlot != none {
+            rowSlot.SetPadding(Margin(Top: 3, Bottom: 3))
+        }
     }
     RefreshMarks()
 }
@@ -241,7 +256,7 @@ fn ShowNoMods() {
     OptionList.ClearChildren()
 }
 
-// Updates the entries' unapplied-changes marks.
+// Updates the entries' unapplied-changes marks, and drops the close warning once nothing is left unapplied.
 //
 // In:  none
 // Out: none
@@ -249,6 +264,30 @@ fn RefreshMarks() {
     for id, item in Entries {
         item.SetPending(Menu.ModHasPending(id))
     }
+    if bCloseWarned {
+        if !Menu.HasPending() {
+            HideStatus()
+        }
+    }
+}
+
+// Hides the status line (the close warning) and forgets that it was shown. The game's text widget keeps its old text when
+// given an empty key, so the line is hidden rather than emptied.
+//
+// In:  none
+// Out: none
+fn HideStatus() {
+    bCloseWarned = false
+    Status.SetVisibility(ESlateVisibility.Hidden)
+}
+
+// Updates the mod list's marks after a row staged an edit, and keeps keyboard focus in the menu.
+//
+// In:  none
+// Out: none
+fn OnRowEdited() {
+    RefreshMarks()
+    SetFocus()
 }
 
 // Stages the selected mod's defaults (applied only with Apply).
@@ -268,7 +307,7 @@ fn OnReset() {
 fn OnRevert() {
     Menu.Revert()
     bCloseWarned = false
-    Status.SetKey(name(""))
+    HideStatus()
     ShowMod()
     SetFocus()
 }
@@ -280,7 +319,7 @@ fn OnRevert() {
 fn OnApply() {
     Menu.Apply()
     bCloseWarned = false
-    Status.SetKey(name(""))
+    HideStatus()
     ShowMod()
     SetFocus()
 }

@@ -2,10 +2,11 @@ blueprint WBP_FL_ModMenuEntry : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_Mo
 use /Game/Mods/Fretlib/Lib_1
 
 // One mod in the mod menu's list: the game's round text button (Arco_Button_CommonRound) with the mod's name, and a mark when
-// the mod has unapplied changes. Clicking it broadcasts Selected; the menu binds it. Design: ModMenuPlan.md §5.1.
+// the mod has unapplied changes. The button is at least 230 wide and grows with its name; the list stretches every entry to the
+// widest one. Clicking it broadcasts Selected; the menu binds it. Design: ModMenuPlan.md §5.1.
 
 widget Root: HorizontalBox {
-    widget ButtonBox: SizeBox(WidthOverride: 230, HeightOverride: 44) slot(Padding: Margin(Top: 3, Bottom: 3), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+    widget ButtonBox: SizeBox(MinDesiredWidth: 230, HeightOverride: 44) slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), Padding: Margin(Top: 3, Bottom: 3), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
         widget Button: Arco_Button_CommonRound
     }
     widget Mark: TextBlock(Text: "*", Justification: ETextJustify.Center) slot(Padding: Margin(Left: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center)
@@ -20,6 +21,10 @@ var ModId: string = ""
 var NormalTint: Color
 // The label's own colour, kept to restore it when the entry is no longer selected.
 var NormalTextColour: SlateColor
+// The label's font (Germania One, the menu font), applied in both states; the selected state drops any outline.
+var NormalFont: SlateFontInfo
+// Whether NormalFont has been read from the label (after the button is built).
+var bFontSaved: bool = false
 // Whether the button's click is bound (once per widget).
 var bBound: bool = false
 
@@ -34,10 +39,11 @@ fn Setup(NewModId: string, NameKey: string) {
     Button.Default_ButtonKey = NameKey
     Button.UseLocalization = true
     Button.Default_Icon = none
+    Button.Font = BPL_FL_UI.MenuFont(Button.Font, 22.0)
     Button.SetLabelText(NameKey)
     NormalTint = Button.Default_Button_Color
     NormalTextColour = Button.ButtonText.ColorAndOpacity
-    BPL_FL_UI.StyleText(Mark, 18.0)
+    BPL_FL_UI.StyleMenuText(Mark, 22.0, true)
     SetPending(false)
     if !bBound {
         Button.OnClicked.bind(OnButtonClicked)
@@ -50,13 +56,25 @@ fn Setup(NewModId: string, NameKey: string) {
 // In:  bSelected - whether this mod is selected.
 // Out: none
 fn SetSelected(bSelected: bool) {
+    if !bFontSaved {
+        NormalFont = BPL_FL_UI.MenuFont(Button.ButtonText.Font, 22.0)
+        bFontSaved = true
+        BPL_FL_UI.CentreMenuButtonLabel(Button.ButtonText)
+    }
     if bSelected {
-        // Inverted: gold button, dark brown label (the unselected buttons' fill), so the label stays readable.
+        // Inverted: gold button, dark brown label (the unselected buttons' fill) without the dark outline, which would blur
+        // into the brown letters.
         Button.SetBgTint(KismetMathLibrary.Conv_LinearColorToColor(BPL_FL_UI.Gold(), true))
         Button.ButtonText.SetColorAndOpacity(SlateColor(SpecifiedColor: LinearColor(R: 0.024, G: 0.014, B: 0.005, A: 1.0)))
+        let plain = NormalFont
+        let outline = plain.OutlineSettings
+        outline.OutlineSize = 0
+        plain.OutlineSettings = outline
+        Button.ButtonText.SetFont(plain)
     } else {
         Button.SetBgTint(NormalTint)
         Button.ButtonText.SetColorAndOpacity(NormalTextColour)
+        Button.ButtonText.SetFont(NormalFont)
     }
 }
 

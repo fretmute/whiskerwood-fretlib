@@ -1,8 +1,9 @@
 blueprint BPL_FL_UI : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_UI
 use /Game/Mods/Fretlib/Lib_1
 
-// Styling helpers so Fretlib's widgets look like the game's (claude/LoomConventions.md §9): LibreBaskerville Bold, the game's
-// gold text with its dark outline. Values copied from the game's details widgets (Details_Industry_WidgetData.txt).
+// Styling helpers so Fretlib's widgets look like the game's (claude/LoomConventions.md §9). Two styles: StyleText for sidebar
+// panels (LibreBaskerville Bold, gold, dark outline, as the details widgets), and StyleMenuText for settings-style screens such
+// as the mod menu (Germania One, gold, no outline, as the game's settings screen). Values from the game's widget dumps.
 
 category "Fretlib|UI"
 
@@ -39,4 +40,54 @@ fn StyleText(Target: TextBlock, FontSize: float) -> bool {
     Target.SetFont(font)
     Target.SetColorAndOpacity(SlateColor(SpecifiedColor: Gold()))
     return true
+}
+
+// The settings-screen font (Germania One) at a size, without an outline, built on an existing font struct (a SlateFontInfo
+// literal needs every field, so one is copied).
+//
+// In:  Base - any font struct to start from (e.g. the target text's own Font).
+//      FontSize - the size (20 for rows, 24 headings, 26 titles).
+// Out: Return - the font; Base unchanged if Germania One couldn't be loaded.
+fn MenuFont(Base: SlateFontInfo, FontSize: float) -> SlateFontInfo {
+    let fontRef: soft<Font> = /Game/Assets/Fonts/Germania_One/GermaniaOne-Regular_Font.GermaniaOne-Regular_Font
+    let fontObject = fontRef.load()
+    let menuFont = Base
+    if fontObject == none {
+        return menuFont
+    }
+    menuFont.FontObject = fontObject
+    menuFont.TypefaceFontName = "Default"
+    menuFont.Size = FontSize
+    let outline = menuFont.OutlineSettings
+    outline.OutlineSize = 0
+    menuFont.OutlineSettings = outline
+    return menuFont
+}
+
+// Sets a text block to the game's settings-screen style: Germania One at a size, no outline, and (optionally) gold.
+//
+// In:  Target - the text block (or LocTextBlock).
+//      FontSize - the size (20 for rows, 24 headings, 26 titles).
+//      bGold - true to colour it gold; false keeps its colour (e.g. a button label the button colours itself).
+// Out: none
+fn StyleMenuText(Target: TextBlock, FontSize: float, bGold: bool) {
+    if Target == none {
+        return
+    }
+    Target.SetFont(MenuFont(Target.Font, FontSize))
+    if bGold {
+        Target.SetColorAndOpacity(SlateColor(SpecifiedColor: Gold()))
+    }
+}
+
+// Moves a round button's label up to sit centred: Germania One draws lower in its line than the font the game's buttons were
+// laid out for. Only the drawing moves, not the layout.
+//
+// In:  Label - the button's label (e.g. Arco_Button_CommonRound.ButtonText).
+// Out: none
+fn CentreMenuButtonLabel(Label: TextBlock) {
+    if Label == none {
+        return
+    }
+    Label.SetRenderTranslation(Vector2D(X: 0.0, Y: -3.0))
 }

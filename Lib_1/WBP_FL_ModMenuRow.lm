@@ -2,35 +2,256 @@ blueprint WBP_FL_ModMenuRow : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_ModM
 use /Game/Mods/Fretlib/Lib_1
 
 // One row of the mod menu's pane, in the staffing panel's row layout without the icon: | name | control |. The name fills the
-// left; the control sits in a fixed-width box on the right so controls line up. Step 2 shows the value as text; step 3 puts the
-// type's control there. A group row shows only its heading. Design: workflows/CommonLibrary/docs/ModMenuPlan.md §5.1.
+// left; the control sits in a fixed-width box on the right so controls line up. Controls are the game's own widgets: Bool an
+// arcoToggle; Int and Float the round -/+ buttons with the value between; Choice the round buttons as arrows around the chosen
+// key's text. Text, Key and Action show their value as text for now (ModMenuPlan.md §10 step 4). Edits are staged in
+// AC_FL_ModMenu (applied with the menu's Apply), and Edited tells the menu to update its marks. A group row shows only its
+// heading. Design: workflows/CommonLibrary/docs/ModMenuPlan.md §4, §5.1, §6.1.
 
-widget Root: HorizontalBox {
-    widget Name: LocTextBlock(Key: "", Justification: ETextJustify.Left) slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), Padding: Margin(Left: 10, Top: 6, Right: 10, Bottom: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center)
-    widget ControlBox: SizeBox(WidthOverride: 220, HeightOverride: 36) slot(Padding: Margin(Right: 10), HorizontalAlignment: EHorizontalAlignment.HAlign_Right, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
-        widget ValueText: TextBlock(Text: "", Justification: ETextJustify.Center)
+widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Right: 4, Bottom: 2)) {
+    widget Root: HorizontalBox {
+        widget LeftLine: HR_HorizontalBallDivider slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center)
+        widget Name: LocTextBlock(Key: "", Justification: ETextJustify.Left) slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), Padding: Margin(Left: 10, Top: 6, Right: 6, Bottom: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center)
+        widget RightLine: HR_HorizontalBallDivider slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center)
+        widget Mark: TextBlock(Text: "*", Justification: ETextJustify.Center) slot(Padding: Margin(Right: 10), VerticalAlignment: EVerticalAlignment.VAlign_Center)
+        widget ControlBox: SizeBox(WidthOverride: 220, HeightOverride: 40) slot(Padding: Margin(Right: 10), HorizontalAlignment: EHorizontalAlignment.HAlign_Right, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+            widget Controls: Overlay {
+                widget Toggle: arcoToggle slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Right, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                widget Stepper: HorizontalBox slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Fill, VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                    widget LeftBox: SizeBox(WidthOverride: 30, HeightOverride: 30) slot(VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                        widget LeftButton: RoundedButton
+                    }
+                    widget ValueArea: Overlay slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                        widget ValueText: TextBlock(Text: "", Justification: ETextJustify.Center) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                        widget ChoiceText: LocTextBlock(Key: "", Justification: ETextJustify.Center) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+                    }
+                    widget RightBox: SizeBox(WidthOverride: 30, HeightOverride: 30) slot(VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+                        widget RightButton: RoundedButton
+                    }
+                }
+                widget PlainText: TextBlock(Text: "", Justification: ETextJustify.Center) slot(HorizontalAlignment: EHorizontalAlignment.HAlign_Center, VerticalAlignment: EVerticalAlignment.VAlign_Center)
+            }
+        }
     }
 }
 
+// Broadcast after the row staged an edit, so the menu can update its marks.
+dispatcher Edited()
+
+// The -/+ icons (the game's).
+var MinusIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-minus-90.icons8-minus-90
+var PlusIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-plus-90.icons8-plus-90
+// The arrow icon for choices (pointing right; the left button shows it mirrored).
+var ArrowIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-play-100.icons8-play-100
+
 // The row's option.
 var Option: S_FL_ModOption
+// The menu state the row reads and stages edits in.
+var Menu: AC_FL_ModMenu
+// Whether the controls are bound (once per widget).
+var bBound: bool = false
+// Whether Show has run (Construct refreshes the controls only then).
+var bShown: bool = false
 
-// Shows an option (or a group heading) and its value.
+// Shows an option (or a group heading) with the control for its type and its shown value. Call before the row is added to the pane.
 //
 // In:  NewOption - the row from the registry.
-//      Value - the value to show (the pending edit if any, else the applied value).
-//      bPending - whether the value is an unapplied edit (marked with *).
+//      NewMenu - the map's AC_FL_ModMenu.
 // Out: none
-fn Show(NewOption: S_FL_ModOption, Value: string, bPending: bool) {
+fn Show(NewOption: S_FL_ModOption, NewMenu: AC_FL_ModMenu) {
     Option = NewOption
+    Menu = NewMenu
+    bShown = true
     Name.SetKey(name(NewOption.NameKey))
     if NewOption.Type == E_FL_ModOptionType.Group {
-        BPL_FL_UI.StyleText(Name, 20.0)
+        // A heading as on the game's settings screen: the game's ball dividers either side of the name, which is centred and
+        // in the serif heading font.
+        Pill.SetBrushColor(LinearColor(R: 0.0, G: 0.0, B: 0.0, A: 0.0))
+        BPL_FL_UI.StyleText(Name, 22.0)
+        let nameSlot = cast(Name.Slot, HorizontalBoxSlot)
+        if nameSlot != none {
+            nameSlot.SetSize(SlateChildSize(SizeRule: ESlateSizeRule.Automatic, Value: 1.0))
+            nameSlot.SetPadding(Margin(Left: 12, Top: 10, Right: 12, Bottom: 4))
+        }
+        LeftLine.SetVisibility(ESlateVisibility.Visible)
+        RightLine.SetVisibility(ESlateVisibility.Visible)
+        // The name's padding is 10 above and 4 below, so its centre is 3 below the row's; draw the dividers there too.
+        LeftLine.SetRenderTranslation(Vector2D(X: 0.0, Y: 3.0))
+        RightLine.SetRenderTranslation(Vector2D(X: 0.0, Y: 3.0))
+        Mark.SetVisibility(ESlateVisibility.Collapsed)
         ControlBox.SetVisibility(ESlateVisibility.Collapsed)
         return
     }
-    BPL_FL_UI.StyleText(Name, 16.0)
-    BPL_FL_UI.StyleText(ValueText, 16.0)
-    ControlBox.SetVisibility(ESlateVisibility.Visible)
-    ValueText.SetText(text(Value + (if bPending { " *" } else { "" })))
+    LeftLine.SetVisibility(ESlateVisibility.Collapsed)
+    RightLine.SetVisibility(ESlateVisibility.Collapsed)
+    BPL_FL_UI.StyleMenuText(Name, 22.0, true)
+    BPL_FL_UI.StyleMenuText(Mark, 22.0, true)
+    BPL_FL_UI.StyleMenuText(ValueText, 22.0, true)
+    BPL_FL_UI.StyleMenuText(ChoiceText, 22.0, true)
+    BPL_FL_UI.StyleMenuText(PlainText, 22.0, true)
+    MakePill()
+    SetUpControls()
+    Refresh()
+}
+
+// Gives the row a dark rounded pill behind it, like the game's settings rows.
+//
+// In:  none
+// Out: none
+fn MakePill() {
+    let brush = Pill.Background
+    brush.DrawAs = ESlateBrushDrawType.RoundedBox
+    brush.TintColor = SlateColor(SpecifiedColor: LinearColor(R: 0.0, G: 0.0, B: 0.0, A: 0.55))
+    let outline = brush.OutlineSettings
+    outline.RoundingType = ESlateBrushRoundingType.HalfHeightRadius
+    outline.Width = 0.0
+    brush.OutlineSettings = outline
+    Pill.SetBrush(brush)
+    Pill.SetBrushColor(LinearColor(R: 1.0, G: 1.0, B: 1.0, A: 1.0))
+}
+
+// Shows the control for the option's type and gives the game widgets the menu's action names (once).
+//
+// In:  none
+// Out: none
+fn SetUpControls() {
+    let isBool = Option.Type == E_FL_ModOptionType.Bool
+    let isNumber = Option.Type == E_FL_ModOptionType.Int || Option.Type == E_FL_ModOptionType.Float
+    let isChoice = Option.Type == E_FL_ModOptionType.Choice
+    Toggle.SetVisibility(if isBool { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    Stepper.SetVisibility(if isNumber || isChoice { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    PlainText.SetVisibility(if isBool || isNumber || isChoice { ESlateVisibility.Collapsed } else { ESlateVisibility.Visible })
+    ValueText.SetVisibility(if isNumber { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    ChoiceText.SetVisibility(if isChoice { ESlateVisibility.Visible } else { ESlateVisibility.Collapsed })
+    if isNumber {
+        SetButtonIcon(LeftButton, MinusIcon.load(), false)
+        SetButtonIcon(RightButton, PlusIcon.load(), false)
+    }
+    if isChoice {
+        SetButtonIcon(LeftButton, ArrowIcon.load(), true)
+        SetButtonIcon(RightButton, ArrowIcon.load(), false)
+    }
+    if bBound {
+        return
+    }
+    bBound = true
+    Toggle.clickActionEnable = HudAction(action: "Fretlib.ModMenu.On")
+    Toggle.clickActionDisable = HudAction(action: "Fretlib.ModMenu.Off")
+    LeftButton.action = HudAction(action: "Fretlib.ModMenu.Left")
+    RightButton.action = HudAction(action: "Fretlib.ModMenu.Right")
+    Toggle.OnHudActionDelegate.bind(OnHudAction)
+    LeftButton.OnHudActionDelegate.bind(OnHudAction)
+    RightButton.OnHudActionDelegate.bind(OnHudAction)
+}
+
+// Gives one of the round buttons an icon in the game's gold.
+//
+// In:  Target - the button.
+//      Icon - the icon texture (none leaves the button's own).
+//      bMirrored - true to mirror the icon left-right (the left arrow).
+// Out: none
+fn SetButtonIcon(Target: RoundedButton, Icon: Texture2D, bMirrored: bool) {
+    if Icon == none {
+        return
+    }
+    let tint = SlateColor(SpecifiedColor: BPL_FL_UI.Gold())
+    Target.iconTexture = Icon
+    Target.iconSize = 18.0
+    Target.IconTintColor = tint
+    Target.SetButtonIcon(Icon, 18.0)
+    Target.icon.SetColorAndOpacity(BPL_FL_UI.Gold())
+    Target.icon.SetRenderScale(Vector2D(X: if bMirrored { -1.0 } else { 1.0 }, Y: 1.0))
+}
+
+// Shows the option's current value (the pending edit if any) and the unapplied-changes mark.
+//
+// In:  none
+// Out: none
+fn Refresh() {
+    if Menu == none {
+        return
+    }
+    let shown = Menu.GetShownValue(Option.ModId, Option.OptionId)
+    let applied = Menu.GetValue(Option.ModId, Option.OptionId)
+    Mark.SetVisibility(if shown != applied.ReturnValue { ESlateVisibility.Visible } else { ESlateVisibility.Hidden })
+    if Option.Type == E_FL_ModOptionType.Bool {
+        // The game's toggle ignores a state it believes it already has, and a new toggle believes it is off while drawn with
+        // its knob on the right; switching through the opposite state makes it redraw either way.
+        let on = shown == "true"
+        Toggle.SetSelected(!on)
+        Toggle.SetSelected(on)
+        return
+    }
+    if Option.Type == E_FL_ModOptionType.Int {
+        ValueText.SetText(text(shown))
+        return
+    }
+    if Option.Type == E_FL_ModOptionType.Float {
+        ValueText.SetText(FormatFloat(float(shown)))
+        return
+    }
+    if Option.Type == E_FL_ModOptionType.Choice {
+        ChoiceText.SetKey(name(shown))
+        return
+    }
+    PlainText.SetText(text(shown))
+}
+
+// A number with the option's decimal places.
+//
+// In:  Value - the number.
+// Out: Return - the text.
+fn FormatFloat(Value: float) -> text {
+    return KismetTextLibrary.Conv_DoubleToText(Value, ERoundingMode.HalfToEven, false, true, 1, 324, Option.Decimals, Option.Decimals)
+}
+
+// Applies a click on the row's controls: the toggle turns a Bool on or off; the left and right buttons step a number by its
+// step (within its range) or move a choice to the previous or next one (wrapping round). The edit is staged, not applied.
+//
+// In:  Action - the HudAction the game widget sent.
+// Out: none
+fn OnHudAction(Action: HudAction) {
+    let shown = Menu.GetShownValue(Option.ModId, Option.OptionId)
+    let newValue = shown
+    let direction = if Action.action == "Fretlib.ModMenu.Right" { 1 } else { -1 }
+    if Action.action == "Fretlib.ModMenu.On" {
+        newValue = "true"
+    }
+    if Action.action == "Fretlib.ModMenu.Off" {
+        newValue = "false"
+    }
+    if Action.action == "Fretlib.ModMenu.Left" || Action.action == "Fretlib.ModMenu.Right" {
+        if Option.Type == E_FL_ModOptionType.Int {
+            let stepped = int(shown) + direction * int(Option.Step)
+            newValue = string(KismetMathLibrary.Clamp(stepped, int(Option.Min), int(Option.Max)))
+        }
+        if Option.Type == E_FL_ModOptionType.Float {
+            let steps = KismetMathLibrary.Round(float(shown) / Option.Step) + direction
+            let f = KismetMathLibrary.FClamp(float(steps) * Option.Step, Option.Min, Option.Max)
+            newValue = string(f)
+        }
+        if Option.Type == E_FL_ModOptionType.Choice {
+            let count = Option.Choices.Length()
+            if count > 0 {
+                let index = Option.Choices.Find(shown)
+                let nextIndex = (index + direction + count) % count
+                newValue = Option.Choices[nextIndex]
+            }
+        }
+    }
+    if newValue != shown {
+        Menu.StageValue(Option.ModId, Option.OptionId, newValue)
+    }
+    Refresh()
+    Edited.broadcast()
+}
+
+// Shows the controls' state again once the row is on screen: the game's widgets reset themselves when they are first built,
+// so a state set before that (in Show) is lost.
+on Construct {
+    if bShown {
+        if Option.Type != E_FL_ModOptionType.Group {
+            Refresh()
+        }
+    }
 }
