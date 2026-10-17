@@ -55,6 +55,10 @@ pure fn GetWorkerComponent(Building: Actor) -> ActorComponent {
     if storage != none {
         return storage
     }
+    let yard = Building.GetComponentByClass(/Script/ProjectArco.ConstructionYard)
+    if yard != none {
+        return yard
+    }
     return none
 }
 
@@ -104,6 +108,13 @@ pure fn GetWorkerAssignment(Component: ActorComponent, out Found: bool) -> Worke
     let storage = cast(Component, ResourceBuilding)
     if storage != none {
         return storage.m_workers
+    }
+    // ConstructionYard is also a building Blueprint's name: as for LogisticsHub, compare with the owner's yard component.
+    if Component != none {
+        let yard = Component.GetOwner().GetComponentByClass(/Script/ProjectArco.ConstructionYard)
+        if yard != none && yard == Component {
+            return yard.m_workers
+        }
     }
     Found = false
     return WorkerAssignment()
