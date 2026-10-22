@@ -159,12 +159,9 @@ fn Normalize(Row: S_FL_ModOption, Value: string, out Valid: bool) -> string {
     Valid = true
     let v = KismetStringLibrary.TrimTrailing(KismetStringLibrary.Trim(Value))
     if Row.Type == E_FL_ModOptionType.Bool {
-        let lower = KismetStringLibrary.ToLower(v)
-        if lower == "true" || lower == "on" || lower == "yes" || lower == "1" {
-            return "true"
-        }
-        if lower == "false" || lower == "off" || lower == "no" || lower == "0" {
-            return "false"
+        let boolRead = BPL_FL_Config.ParseBool(v)
+        if boolRead.Valid {
+            return if boolRead.ReturnValue { "true" } else { "false" }
         }
         Valid = false
         return Row.Default

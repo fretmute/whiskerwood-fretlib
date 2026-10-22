@@ -137,7 +137,27 @@ pure fn GetString(Values: map<name, string>, Key: name, Default: string) -> stri
     return if check.ReturnValue { Default } else { check.Value }
 }
 
-// An on/off value: true, on, yes, 1 / false, off, no, 0 (any case).
+// A boolean written as text, in any case: true, on, yes, 1, enabled, toggle.enabled / false, off, no, 0, disabled,
+// toggle.disabled (the last two are the game's own keys for its Enabled/Disabled labels). Documented as true/false;
+// every mod's text files and Fretlib's menu read booleans through this, so they all accept the same words.
+//
+// In:  Value - the text (spaces around it are ignored).
+// Out: Return - the value (false when not recognized).
+//      Valid - whether the text was recognized.
+pure fn ParseBool(Value: string, out Valid: bool) -> bool {
+    let word = KismetStringLibrary.ToLower(KismetStringLibrary.TrimTrailing(KismetStringLibrary.Trim(Value)))
+    Valid = true
+    if word == "true" || word == "on" || word == "yes" || word == "1" || word == "enabled" || word == "toggle.enabled" {
+        return true
+    }
+    if word == "false" || word == "off" || word == "no" || word == "0" || word == "disabled" || word == "toggle.disabled" {
+        return false
+    }
+    Valid = false
+    return false
+}
+
+// An on/off value (ParseBool's words).
 //
 // In:  Values - key -> value.
 //      Key - the key.
@@ -150,15 +170,12 @@ pure fn GetBool(Values: map<name, string>, Key: name, Default: bool, out Valid: 
     if check.ReturnValue {
         return Default
     }
-    let v = KismetStringLibrary.ToLower(check.Value)
-    if v == "true" || v == "on" || v == "yes" || v == "1" {
-        return true
+    let parsed = ParseBool(check.Value)
+    if !parsed.Valid {
+        Valid = false
+        return Default
     }
-    if v == "false" || v == "off" || v == "no" || v == "0" {
-        return false
-    }
-    Valid = false
-    return Default
+    return parsed.ReturnValue
 }
 
 // A whole number.
