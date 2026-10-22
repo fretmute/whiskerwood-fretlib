@@ -25,4 +25,14 @@ struct S_FL_ModOption at /Game/Mods/Fretlib/Lib_1/S_FL_ModOption {
     Decimals: int
     // The choice keys (Choice).
     Choices: array<string>
+    // Group rows: shown closed until the player opens it (the player's choice is then kept in SG_FL_ModMenu).
+    bStartCollapsed: bool
+    // Hidden until the player turns on "Show advanced options" for the mod. A group's flag covers its options.
+    bAdvanced: bool
+    // The id of the Bool option (same mod) that enables this one; empty: always enabled.
+    EnabledBy: string
+    // The value EnabledBy must show for this option to be enabled ("true" or "false").
+    EnabledWhen: string = "true"
+    // Not shown in the menu: the mod reads and stages it in code (e.g. a choice made in its own window); it is still saved.
+    bHidden: bool
 }

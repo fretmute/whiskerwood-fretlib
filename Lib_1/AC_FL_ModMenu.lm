@@ -29,6 +29,10 @@ var Values: map<string, string>
 var Pending: map<string, string>
 // Whether the slot has been read this load.
 var bLoaded: bool = false
+// The player's open or closed groups and shown advanced options (saved with the values, but not staged: they take effect at
+// once).
+var Collapsed: map<string, bool>
+var ShowAdvanced: map<string, bool>
 
 // The name of the save slot.
 //
@@ -62,6 +66,8 @@ fn EnsureLoaded() {
         return
     }
     Values = sg.Values
+    Collapsed = sg.Collapsed
+    ShowAdvanced = sg.ShowAdvanced
     BPL_FL_Log.Info(Logger, "mod menu: loaded " + string(Values.Length()) + " saved values")
 }
 
@@ -76,6 +82,8 @@ fn SaveValues() -> bool {
         return false
     }
     sg.Values = Values
+    sg.Collapsed = Collapsed
+    sg.ShowAdvanced = ShowAdvanced
     let ok = GameplayStatics.SaveGameToSlot(sg, SlotName(), 0)
     if !ok {
         BPL_FL_Log.Error(Logger, "mod menu: could not save the slot " + SlotName())
@@ -131,7 +139,7 @@ fn AddRow(Row: S_FL_ModOption) -> bool {
         group = entry.CurrentGroup
     }
     // Not named `row`: Blueprint names ignore case, so a local `row` would be the parameter `Row`, which can't be written.
-    let newRow = S_FL_ModOption(ModId: Row.ModId, OptionId: Row.OptionId, Type: Row.Type, NameKey: Row.NameKey, DescKey: Row.DescKey, GroupId: group, Default: Row.Default, Min: Row.Min, Max: Row.Max, Step: Row.Step, Decimals: Row.Decimals, Choices: Row.Choices)
+    let newRow = S_FL_ModOption(ModId: Row.ModId, OptionId: Row.OptionId, Type: Row.Type, NameKey: Row.NameKey, DescKey: Row.DescKey, GroupId: group, Default: Row.Default, Min: Row.Min, Max: Row.Max, Step: Row.Step, Decimals: Row.Decimals, Choices: Row.Choices, bStartCollapsed: Row.bStartCollapsed, bAdvanced: Row.bAdvanced, EnabledBy: Row.EnabledBy, EnabledWhen: Row.EnabledWhen, bHidden: Row.bHidden)
     if !entry.Keys.Contains(key) {
         entry.Keys.Add(key)
     }
@@ -416,6 +424,128 @@ fn GetRows(ModId: string) -> array<S_FL_ModOption> {
         }
     }
     return rows
+}
+
+// ---- organization: groups, advanced options, dependent options ----
+
+// The registry key of a group row.
+//
+// In:  ModId - the mod's id.
+//      GroupId - the group's id.
+// Out: Return - "<ModId>.#<GroupId>".
+pure fn GroupKey(ModId: string, GroupId: string) -> string {
+    return ModId + ".#" + GroupId
+}
+
+// Changes a registered row's organization flags (the other fields stay).
+//
+// In:  Key - the row's key (OptionKey or GroupKey).
+//      Field - which flag: "collapsed", "advanced", "hidden", "enabledBy" or "description".
+//      Flag - the new bool flag (collapsed, advanced, hidden).
+//      ByOption - for enabledBy: the controlling option's id; for description: the string key.
+//      WhenValue - for enabledBy: the value it must show.
+// Out: Return - false if the row isn't registered.
+fn SetRowFlag(Key: string, Field: string, Flag: bool, ByOption: string, WhenValue: string) -> bool {
+    let flagged = Options.Find(Key)
+    if !flagged.ReturnValue {
+        BPL_FL_Log.Warning(Logger, "mod menu: " + Field + " for unknown row " + Key + "; ignored")
+        return false
+    }
+    let changed = flagged.Value
+    if Field == "collapsed" {
+        changed.bStartCollapsed = Flag
+    }
+    if Field == "advanced" {
+        changed.bAdvanced = Flag
+    }
+    if Field == "hidden" {
+        changed.bHidden = Flag
+    }
+    if Field == "description" {
+        changed.DescKey = ByOption
+    }
+    if Field == "enabledBy" {
+        changed.EnabledBy = ByOption
+        changed.EnabledWhen = WhenValue
+    }
+    Options.Add(Key, changed)
+    return true
+}
+
+// Whether a group is closed in the menu: the player's choice if made, otherwise its registered bStartCollapsed.
+//
+// In:  ModId - the mod's id.
+//      GroupId - the group's id.
+// Out: Return - true if its options are hidden.
+fn IsGroupCollapsed(ModId: string, GroupId: string) -> bool {
+    let key = GroupKey(ModId, GroupId)
+    let chosen = Collapsed.Find(key)
+    if chosen.ReturnValue {
+        return chosen.Value
+    }
+    let groupRow = Options.Find(key)
+    return groupRow.ReturnValue && groupRow.Value.bStartCollapsed
+}
+
+// Opens a closed group or closes an open one, and saves the player's choice at once.
+//
+// In:  ModId - the mod's id.
+//      GroupId - the group's id.
+// Out: none
+fn ToggleGroup(ModId: string, GroupId: string) {
+    let nowCollapsed = !IsGroupCollapsed(ModId, GroupId)
+    Collapsed.Add(GroupKey(ModId, GroupId), nowCollapsed)
+    SaveValues()
+}
+
+// Whether the player shows a mod's advanced options.
+//
+// In:  ModId - the mod's id.
+// Out: Return - true if they are shown.
+fn IsShowingAdvanced(ModId: string) -> bool {
+    let shownFlag = ShowAdvanced.Find(ModId)
+    return shownFlag.ReturnValue && shownFlag.Value
+}
+
+// Shows or hides a mod's advanced options, and saves the player's choice at once.
+//
+// In:  ModId - the mod's id.
+//      Show - true to show them.
+// Out: none
+fn SetShowingAdvanced(ModId: string, Show: bool) {
+    ShowAdvanced.Add(ModId, Show)
+    SaveValues()
+}
+
+// How many of a mod's options are advanced (their own flag or their group's); groups themselves aren't counted.
+//
+// In:  ModId - the mod's id.
+// Out: Return - the count.
+fn CountAdvanced(ModId: string) -> int {
+    let advancedCount = 0
+    let groupAdvanced = false
+    for advancedRow in GetRows(ModId) {
+        if advancedRow.Type == E_FL_ModOptionType.Group {
+            groupAdvanced = advancedRow.bAdvanced
+        } else {
+            if (advancedRow.bAdvanced || groupAdvanced) && !advancedRow.bHidden {
+                advancedCount += 1
+            }
+        }
+    }
+    return advancedCount
+}
+
+// Whether a row can be edited now: always, unless it names an option that enables it and that option's shown value (pending
+// edit included, so the change shows before Apply) isn't the one it needs.
+//
+// In:  Row - the row.
+// Out: Return - true if enabled.
+fn IsRowEnabled(Row: S_FL_ModOption) -> bool {
+    if Row.EnabledBy == "" {
+        return true
+    }
+    return GetShownValue(Row.ModId, Row.EnabledBy) == Row.EnabledWhen
 }
 
 // Sets up the logger and reads the saved values.

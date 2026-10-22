@@ -14,6 +14,9 @@ use /Game/Mods/Fretlib/Lib_1
 widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Right: 4, Bottom: 2)) {
     widget Root: HorizontalBox {
         widget LeftLine: HR_HorizontalBallDivider slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center)
+        widget GroupArrowBox: SizeBox(WidthOverride: 14, HeightOverride: 14) slot(Padding: Margin(Left: 12, Top: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+            widget GroupArrow: Image
+        }
         widget Name: LocTextBlock(Key: "", Justification: ETextJustify.Left) slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), Padding: Margin(Left: 10, Top: 6, Right: 6, Bottom: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center)
         widget RightLine: HR_HorizontalBallDivider slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center)
         widget Mark: TextBlock(Text: "*", Justification: ETextJustify.Center) slot(Padding: Margin(Right: 10), VerticalAlignment: EVerticalAlignment.VAlign_Center)
@@ -62,6 +65,10 @@ widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Ri
 
 // Broadcast after the row staged an edit, so the menu can update its marks.
 dispatcher Edited()
+// Broadcast when a group heading is clicked (the menu opens or closes the group).
+dispatcher GroupToggled(GroupId: string)
+// Broadcast when a local toggle row (ShowLocalToggle) is switched.
+dispatcher LocalToggled(On: bool)
 
 // The -/+ icons (the game's).
 var MinusIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-minus-90.icons8-minus-90
@@ -85,6 +92,10 @@ var bNumberError: bool = false
 var DropdownAbove: int = 6
 // Choice values longer than this many characters are drawn smaller, so they fit between the arrows (FitSize).
 var LongValue: int = 13
+// A local toggle row (ShowLocalToggle): its value belongs to the menu, not to a mod's option.
+var bLocal: bool = false
+// A local toggle row's value.
+var bLocalOn: bool = false
 
 // Shows an option (or a group heading) with the control for its type and its shown value. Call before the row is added to the pane.
 //
@@ -113,8 +124,23 @@ fn Show(NewOption: S_FL_ModOption, NewMenu: AC_FL_ModMenu) {
         RightLine.SetRenderTranslation(Vector2D(X: 0.0, Y: 3.0))
         Mark.SetVisibility(ESlateVisibility.Collapsed)
         ControlBox.SetVisibility(ESlateVisibility.Collapsed)
+        // The open/closed arrow before the name (the choices' arrow, gold: right when closed, down when open). The whole row
+        // takes the click (OnMouseButtonDown).
+        GroupArrow.SetBrushFromTexture(ArrowIcon.load(), false)
+        GroupArrow.SetColorAndOpacity(BPL_FL_UI.Gold())
+        GroupArrowBox.SetVisibility(ESlateVisibility.HitTestInvisible)
+        SetGroupOpen(!Menu.IsGroupCollapsed(NewOption.ModId, NewOption.OptionId))
+        SetVisibility(ESlateVisibility.Visible)
+        if NewOption.DescKey != "" {
+            // The game's tooltip on the heading's name, as on option names (SetGroupDescription).
+            let groupTip = create_widget(WBP_FL_ModMenuTooltip)
+            groupTip.Setup(NewOption.NameKey, NewOption.DescKey)
+            Name.SetToolTip(groupTip)
+            Name.SetVisibility(ESlateVisibility.Visible)
+        }
         return
     }
+    GroupArrowBox.SetVisibility(ESlateVisibility.Collapsed)
     LeftLine.SetVisibility(ESlateVisibility.Collapsed)
     RightLine.SetVisibility(ESlateVisibility.Collapsed)
     if NewOption.DescKey != "" {
@@ -132,6 +158,37 @@ fn Show(NewOption: S_FL_ModOption, NewMenu: AC_FL_ModMenu) {
     MakePill()
     SetUpControls()
     Refresh()
+}
+
+// Shows a group heading's arrow open (pointing down) or closed (pointing right).
+//
+// In:  Open - true when the group's options are shown.
+// Out: none
+fn SetGroupOpen(Open: bool) {
+    GroupArrow.SetRenderTransformAngle(if Open { 90.0 } else { 0.0 })
+}
+
+// Shows a row whose toggle belongs to the menu itself (e.g. "Show advanced options"), not to a mod's option: switching it
+// broadcasts LocalToggled and stages nothing.
+//
+// In:  NameKey - string key of its name.
+//      DescKey - string key of its description (tooltip), or empty.
+//      On - its value.
+//      NewMenu - the map's AC_FL_ModMenu.
+// Out: none
+fn ShowLocalToggle(NameKey: string, DescKey: string, On: bool, NewMenu: AC_FL_ModMenu) {
+    bLocal = true
+    bLocalOn = On
+    Show(S_FL_ModOption(Type: E_FL_ModOptionType.Bool, NameKey: NameKey, DescKey: DescKey), NewMenu)
+}
+
+// Grays out a row whose enabling option isn't set (SetEnabledBy): its control can't be used, and the row is drawn fainter.
+//
+// In:  Enabled - false to gray it out.
+// Out: none
+fn SetRowEnabled(Enabled: bool) {
+    ControlBox.SetIsEnabled(Enabled)
+    Root.SetRenderOpacity(if Enabled { 1.0 } else { 0.45 })
 }
 
 // Gives the row a dark rounded pill behind it, like the game's settings rows.
@@ -268,6 +325,13 @@ fn Refresh() {
     if Menu == none {
         return
     }
+    if bLocal {
+        // The game's toggle ignores a state it believes it already has: switch through the opposite state (as below).
+        Toggle.SetSelected(!bLocalOn)
+        Toggle.SetSelected(bLocalOn)
+        Mark.SetVisibility(ESlateVisibility.Hidden)
+        return
+    }
     let shown = Menu.GetShownValue(Option.ModId, Option.OptionId)
     RefreshMark()
     // The buttons are 36 high: their labels need the smaller size to fit (set again once shown, as the bottom bar does).
@@ -330,6 +394,10 @@ fn Refresh() {
 // In:  none
 // Out: none
 fn RefreshMark() {
+    if bLocal {
+        Mark.SetVisibility(ESlateVisibility.Hidden)
+        return
+    }
     let shown = Menu.GetShownValue(Option.ModId, Option.OptionId)
     let applied = Menu.GetValue(Option.ModId, Option.OptionId)
     Mark.SetVisibility(if shown != applied.ReturnValue { ESlateVisibility.Visible } else { ESlateVisibility.Hidden })
@@ -571,6 +639,12 @@ fn FormatFloat(Value: float) -> text {
 // In:  Action - the HudAction the game widget sent.
 // Out: none
 fn OnHudAction(Action: HudAction) {
+    if bLocal {
+        bLocalOn = Action.action == "Fretlib.ModMenu.On"
+        Refresh()
+        LocalToggled.broadcast(bLocalOn)
+        return
+    }
     let shown = Menu.GetShownValue(Option.ModId, Option.OptionId)
     let newValue = shown
     let direction = if Action.action == "Fretlib.ModMenu.Right" { 1 } else { -1 }
@@ -616,6 +690,34 @@ on Construct {
             Refresh()
         }
     }
+}
+
+// A click on a group heading opens or closes the group (the menu rebuilds the pane). Other rows leave the click to their
+// controls.
+//
+// In:  MyGeometry - the row's geometry.
+//      MouseEvent - the click.
+// Out: Return - Handled on a group heading.
+on OnMouseButtonDown(MyGeometry: Geometry, MouseEvent: PointerEvent) -> EventReply {
+    if bShown && Option.Type == E_FL_ModOptionType.Group {
+        GroupToggled.broadcast(Option.OptionId)
+        return WidgetBlueprintLibrary.Handled()
+    }
+    return WidgetBlueprintLibrary.Unhandled()
+}
+
+// The second click of a quick pair arrives as a double click, not a second button-down: a heading treats it as one more click,
+// so opening and closing a group quickly works.
+//
+// In:  InMyGeometry - the row's geometry.
+//      InMouseEvent - the double click.
+// Out: Return - Handled on a group heading.
+on OnMouseButtonDoubleClick(InMyGeometry: Geometry, InMouseEvent: PointerEvent) -> EventReply {
+    if bShown && Option.Type == E_FL_ModOptionType.Group {
+        GroupToggled.broadcast(Option.OptionId)
+        return WidgetBlueprintLibrary.Handled()
+    }
+    return WidgetBlueprintLibrary.Unhandled()
 }
 
 // While capturing a key, takes the next key pressed as the pending value (Esc cancels); other keys go on to the menu.

@@ -1,8 +1,10 @@
 blueprint WBP_FL_ModMenu : UserWidget at /Game/Mods/Fretlib/Lib_1/WBP_FL_ModMenu
 use /Game/Mods/Fretlib/Lib_1
 
-// The Fretlib mod menu (layout B): a dimmed full-screen layer that swallows clicks, with a game-style frame centred on it,
-// 1040 wide and as tall as the screen allows (240 above, 110 below; at least 600).
+// The Fretlib mod menu (layout B): a dimmed full-screen layer that swallows clicks, with a game-style frame centered on it,
+// as wide as the screen allows (FitWidth: 1100 to 1600) and as tall (240 above, 110 below; at least 600).
+// Groups open and close with a click on their heading; a mod's advanced options show only with its "Show advanced options"
+// toggle (above its rows); options that depend on another are grayed out while it is off (AC_FL_ModMenu.IsRowEnabled).
 // Left: the registered mods; right: the selected mod's name, description and rows (WBP_FL_ModMenuRow); bottom: Reset to
 // defaults, Revert, Apply, Close. Opened by AC_FL_ModMenuView (F8) with input UI only; it closes itself: Esc cancels (drops
 // unapplied changes), F8 and Close warn once before discarding them. Reads and edits the values through AC_FL_ModMenu.
@@ -69,6 +71,8 @@ var bCloseWarned: bool = false
 var Entries: map<string, WBP_FL_ModMenuEntry>
 // Whether the buttons are bound and the texts styled (once per widget).
 var bSetUp: bool = false
+// The pane's option rows (not headings or the advanced toggle), to gray out dependent ones after an edit.
+var OptionRows: array<WBP_FL_ModMenuRow>
 
 // Shows the menu, takes the player's input (UI only, so no clicks or keys reach the game) and lists the registered mods.
 //
@@ -79,6 +83,7 @@ fn Open(NewMenu: AC_FL_ModMenu, NewPc: PlayerController) {
     Menu = NewMenu
     Pc = NewPc
     SetUp()
+    FitWidth()
     AddToViewport(1000)
     ResetButton.SetVisuals("Fretlib.ModMenu.Reset", none)
     RevertButton.SetVisuals("Fretlib.ModMenu.Revert", none)
@@ -109,6 +114,18 @@ fn Open(NewMenu: AC_FL_ModMenu, NewPc: PlayerController) {
         SelectedMod = ids[0]
     }
     SelectMod(SelectedMod)
+}
+
+// Sizes the window to the screen: the layout width (screen width over the UI scale) less 240, between 1100 and 1600, so
+// option names have room on wide screens (as ASM's Staffing Report).
+//
+// In:  none
+// Out: none
+fn FitWidth() {
+    let viewScale = WidgetLayoutLibrary.GetViewportScale()
+    let viewSize = WidgetLayoutLibrary.GetViewportSize()
+    let layoutWidth = if viewScale > 0.0 { viewSize.X / viewScale } else { 1100.0 }
+    Window.SetWidthOverride(KismetMathLibrary.FClamp(layoutWidth - 240.0, 1100.0, 1600.0))
 }
 
 // Removes the menu and gives the player's input back to the game.
@@ -235,16 +252,79 @@ fn ShowMod() {
     ModName.SetKey(name(entry.ReturnValue.NameKey))
     ModDesc.SetKey(name(entry.ReturnValue.DescKey))
     OptionList.ClearChildren()
+    OptionRows.Clear()
+    let showAdvanced = Menu.IsShowingAdvanced(SelectedMod)
+    if Menu.CountAdvanced(SelectedMod) > 0 {
+        // Above the rows, so it is found without scrolling.
+        let advancedToggle = create_widget(WBP_FL_ModMenuRow)
+        advancedToggle.ShowLocalToggle("Fretlib.ModMenu.ShowAdvanced", "Fretlib.ModMenu.ShowAdvanced.Desc", showAdvanced, Menu)
+        advancedToggle.LocalToggled.bind(OnShowAdvanced)
+        AddPaneRow(advancedToggle)
+    }
+    let groupAdvanced = false
+    let groupClosed = false
     for option in Menu.GetRows(SelectedMod) {
-        let row = create_widget(WBP_FL_ModMenuRow)
-        row.Show(option, Menu)
-        row.Edited.bind(OnRowEdited)
-        let rowSlot = cast(OptionList.AddChild(row), VerticalBoxSlot)
-        if rowSlot != none {
-            rowSlot.SetPadding(Margin(Top: 3, Bottom: 3))
+        let isGroup = option.Type == E_FL_ModOptionType.Group
+        if isGroup {
+            groupAdvanced = option.bAdvanced
+            groupClosed = Menu.IsGroupCollapsed(SelectedMod, option.OptionId)
+        }
+        let hiddenAdvanced = (option.bAdvanced || groupAdvanced) && !showAdvanced
+        let hiddenClosed = !isGroup && groupClosed
+        if !hiddenAdvanced && !hiddenClosed && !option.bHidden {
+            let row = create_widget(WBP_FL_ModMenuRow)
+            row.Show(option, Menu)
+            if isGroup {
+                row.GroupToggled.bind(OnGroupToggled)
+            } else {
+                row.Edited.bind(OnRowEdited)
+                row.SetRowEnabled(Menu.IsRowEnabled(option))
+                OptionRows.Add(row)
+            }
+            AddPaneRow(row)
         }
     }
     RefreshMarks()
+}
+
+// Adds a row to the pane's list, with the rows' spacing.
+//
+// In:  Row - the row widget.
+// Out: none
+fn AddPaneRow(Row: WBP_FL_ModMenuRow) {
+    let rowSlot = cast(OptionList.AddChild(Row), VerticalBoxSlot)
+    if rowSlot != none {
+        rowSlot.SetPadding(Margin(Top: 3, Bottom: 3))
+    }
+}
+
+// Rebuilds the pane where it was scrolled to (after a group was opened or closed, or advanced options shown or hidden).
+//
+// In:  none
+// Out: none
+fn ShowModKeepingScroll() {
+    let scrolledTo = OptionScroll.GetScrollOffset()
+    ShowMod()
+    OptionScroll.SetScrollOffset(scrolledTo)
+    SetFocus()
+}
+
+// Opens or closes a group of the shown mod (saved for the player at once).
+//
+// In:  GroupId - the group's id.
+// Out: none
+fn OnGroupToggled(GroupId: string) {
+    Menu.ToggleGroup(SelectedMod, GroupId)
+    ShowModKeepingScroll()
+}
+
+// Shows or hides the shown mod's advanced options (saved for the player at once).
+//
+// In:  On - true to show them.
+// Out: none
+fn OnShowAdvanced(On: bool) {
+    Menu.SetShowingAdvanced(SelectedMod, On)
+    ShowModKeepingScroll()
 }
 
 // Shows that no mod has registered options.
@@ -288,6 +368,10 @@ fn HideStatus() {
 // Out: none
 fn OnRowEdited() {
     RefreshMarks()
+    // An edit may enable or disable options that depend on it.
+    for editedRow in OptionRows {
+        editedRow.SetRowEnabled(Menu.IsRowEnabled(editedRow.Option))
+    }
 }
 
 // Stages the selected mod's defaults (applied only with Apply).

@@ -14,3 +14,5 @@ Fretlib.ModMenu.NoMods | No mod has registered options.
 Fretlib.ModMenu.Change | Change
 Fretlib.ModMenu.PressKey | Press a key
 Fretlib.ModMenu.Run | Run
+Fretlib.ModMenu.ShowAdvanced | Show advanced options
+Fretlib.ModMenu.ShowAdvanced.Desc | Shows the options this mod marks as advanced: fine tuning that most players leave at its defaults.

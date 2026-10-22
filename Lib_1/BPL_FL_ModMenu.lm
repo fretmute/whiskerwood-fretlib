@@ -301,3 +301,96 @@ fn GetString(ModId: string, OptionId: string, Fallback: string) -> string {
     }
     return v.ReturnValue
 }
+
+// ---- organization (call after adding the group or option) ----
+
+// Makes a group start closed: the player sees its heading and opens it with a click. The player's choice is kept from then
+// on.
+//
+// In:  ModId - the mod's id.
+//      GroupId - the group's id (as given to AddGroup).
+//      Collapsed - true to start closed.
+// Out: Return - false without the menu or if the group isn't registered.
+fn SetGroupCollapsed(ModId: string, GroupId: string, Collapsed: bool) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.SetRowFlag(menu.GroupKey(ModId, GroupId), "collapsed", Collapsed, "", "")
+}
+
+// Marks a whole group as advanced: it and its options are hidden until the player turns on "Show advanced options" for the
+// mod.
+//
+// In:  ModId - the mod's id.
+//      GroupId - the group's id.
+//      Advanced - true to hide it by default.
+// Out: Return - false without the menu or if the group isn't registered.
+fn SetGroupAdvanced(ModId: string, GroupId: string, Advanced: bool) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.SetRowFlag(menu.GroupKey(ModId, GroupId), "advanced", Advanced, "", "")
+}
+
+// Marks one option as advanced: hidden until the player turns on "Show advanced options" for the mod.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+//      Advanced - true to hide it by default.
+// Out: Return - false without the menu or if the option isn't registered.
+fn SetAdvanced(ModId: string, OptionId: string, Advanced: bool) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.SetRowFlag(menu.OptionKey(ModId, OptionId), "advanced", Advanced, "", "")
+}
+
+// Makes an option depend on an on/off option of the same mod: it is grayed out and can't be changed unless that option shows
+// the given value (the menu follows unapplied edits too). Its applied value is kept either way; the mod decides what a
+// disabled option means.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the dependent option's id.
+//      ControllingOptionId - the on/off option's id.
+//      EnabledWhenOn - true: enabled while that option is on; false: while it is off.
+// Out: Return - false without the menu or if the option isn't registered.
+fn SetEnabledBy(ModId: string, OptionId: string, ControllingOptionId: string, EnabledWhenOn: bool) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.SetRowFlag(menu.OptionKey(ModId, OptionId), "enabledBy", false, ControllingOptionId, if EnabledWhenOn { "true" } else { "false" })
+}
+
+// Keeps an option out of the menu: the mod reads it as usual and changes it in code (StageValue and Apply on the menu, e.g. a
+// choice the player makes in the mod's own window), and its value is saved like any other.
+//
+// In:  ModId - the mod's id.
+//      OptionId - the option's id.
+//      Hidden - true to keep it out of the menu.
+// Out: Return - false without the menu or if the option isn't registered.
+fn SetHidden(ModId: string, OptionId: string, Hidden: bool) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.SetRowFlag(menu.OptionKey(ModId, OptionId), "hidden", Hidden, "", "")
+}
+
+// Gives a group heading a tooltip (the game's tooltip, with the heading as its title), e.g. what the group's options are
+// for.
+//
+// In:  ModId - the mod's id.
+//      GroupId - the group's id.
+//      DescKey - string key of the description.
+// Out: Return - false without the menu or if the group isn't registered.
+fn SetGroupDescription(ModId: string, GroupId: string, DescKey: string) -> bool {
+    let menu = GetMenu()
+    if menu == none {
+        return false
+    }
+    return menu.SetRowFlag(menu.GroupKey(ModId, GroupId), "description", false, DescKey, "")
+}

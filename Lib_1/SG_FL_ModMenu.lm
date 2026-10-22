@@ -8,3 +8,8 @@ blueprint SG_FL_ModMenu : SaveGame at /Game/Mods/Fretlib/Lib_1/SG_FL_ModMenu
 var Values: map<string, string>
 // The slot's format version.
 var Version: int = 1
+// The player's open or closed groups, by <ModId>.#<GroupId> (true: closed). A group without an entry uses its registered
+// bStartCollapsed.
+var Collapsed: map<string, bool>
+// The mods whose advanced options the player shows, by mod id.
+var ShowAdvanced: map<string, bool>
