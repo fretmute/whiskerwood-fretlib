@@ -12,6 +12,9 @@ category "Fretlib|HudAction"
 
 // Our hidden industry details widget, never added to the viewport; created on first use. Works for every workplace type.
 var HiddenDetails: Details_Industry_BP
+// Our hidden agent overview panel, never added to the viewport; created on first use and reused. Receives the actions that
+// the game handles directly on a panel (changeRecipe), without SelectTool.
+var HiddenOverview: AgentOverviewPanel
 
 // Sends one HUD action to a building through the hidden details widget and the player controller.
 // The game applies it synchronously. Unknown action names are ignored silently by the game.
@@ -50,6 +53,26 @@ fn DispatchHudAction(Building: Actor, Action: string, ParamInt: int, ParamFloat:
     controller.HandleHudAction(HudAction(action: Action, paramInt: ParamInt, paramFloat: ParamFloat))
     tool.m_activeDetailWidget = saved
     HiddenDetails.Context = none
+    Why = "dispatched"
+    return true
+}
+
+// Sends one HUD action directly to our hidden agent overview panel (ReceiveHudAction), without SelectTool or a Context: the
+// route ProductionLimitsLoader used for changeRecipe (BlueprintClassDesign §7b, "Direct"). The game applies it synchronously.
+// The target is named in the action itself (changeRecipe: paramGrid = the building's root cell, paramName = the recipe).
+//
+// In:  Action - the complete HUD action.
+// Out: Return - true if the action was dispatched.
+//      Why - "dispatched", or why not: "widget not created".
+fn DispatchDirect(Action: HudAction, out Why: string) -> bool {
+    if !KismetSystemLibrary.IsValid(HiddenOverview) {
+        HiddenOverview = create_widget(AgentOverviewPanel)
+    }
+    if HiddenOverview == none {
+        Why = "widget not created"
+        return false
+    }
+    HiddenOverview.ReceiveHudAction(Action)
     Why = "dispatched"
     return true
 }

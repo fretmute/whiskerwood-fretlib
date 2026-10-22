@@ -1,7 +1,8 @@
 blueprint BPL_FL_HudAction : BlueprintFunctionLibrary at /Game/Mods/Fretlib/Lib_1/BPL_FL_HudAction
 use /Game/Mods/Fretlib/Lib_1
 
-// Hire and fire workers in a building without the player selecting it, through the map's BP_FL_HudRouter.
+// Hire and fire workers and change an industry's recipe without the player selecting the building, through the map's
+// BP_FL_HudRouter.
 // Rules from the research: never hire an employed whisker (he stays listed in his old slot as a saved "ghost": fire him there
 // first); hiring into an occupied required slot fires the optional workers too (re-hire them; see the staffing mod's cascade
 // restore). Call from onLoadingFinished on.
@@ -59,4 +60,51 @@ fn FireWorker(Building: Actor, AgentID: int, out Why: string) -> bool {
     let r = Dispatch(Building, "fireSpecificWorker", AgentID, 0.0)
     Why = r.Why
     return r.ReturnValue
+}
+
+// Sends a complete HUD action directly to the router's hidden agent overview panel (no SelectTool, no Context).
+//
+// In:  Action - the HUD action, with the target in its parameters.
+// Out: Return - true if dispatched.
+//      Why - "dispatched", or why not ("no router", or the router's reason).
+fn DispatchDirect(Action: HudAction, out Why: string) -> bool {
+    let router = GetRouter()
+    if router == none {
+        Why = "no router"
+        return false
+    }
+    let r = router.DispatchDirect(Action)
+    Why = r.Why
+    return r.ReturnValue
+}
+
+// Changes an industry's recipe (HUD action changeRecipe on the building's root cell), then checks that it took.
+// The cycle in progress is lost; the stock stays in the building.
+//
+// In:  Building - a grid actor with an Industry component.
+//      RecipeKey - the recipe, one of the industry's m_recipeOptions.
+// Out: Return - true if the industry's active recipe is now RecipeKey.
+//      Why - "changed", or why not: "not a grid actor", "no industry", the dispatch's reason, or "not applied (active <key>)".
+fn ChangeRecipe(Building: Actor, RecipeKey: name, out Why: string) -> bool {
+    let grid = cast(Building, GridActor)
+    if grid == none {
+        Why = "not a grid actor"
+        return false
+    }
+    let industry = cast(Building.GetComponentByClass(Industry), Industry)
+    if industry == none {
+        Why = "no industry"
+        return false
+    }
+    let sent = DispatchDirect(HudAction(action: "changeRecipe", paramName: RecipeKey, paramGrid: grid.liveFootprint.rootPosition))
+    if !sent.ReturnValue {
+        Why = sent.Why
+        return false
+    }
+    if industry.m_activeRecipeKey != RecipeKey {
+        Why = "not applied (active " + string(industry.m_activeRecipeKey) + ")"
+        return false
+    }
+    Why = "changed"
+    return true
 }
