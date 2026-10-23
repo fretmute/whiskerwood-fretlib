@@ -15,6 +15,14 @@ pure fn Gold() -> LinearColor {
     return LinearColor(R: 0.73791, G: 0.527115, B: 0.205079, A: 1.0)
 }
 
+// The game's dark brown for text outlines and shading under gold icons.
+//
+// In:  Opacity - 0.0 (invisible) to 1.0 (solid).
+// Out: Return - the color.
+pure fn Dark(Opacity: float) -> LinearColor {
+    return LinearColor(R: 0.005208, G: 0.002832, B: 0.000444, A: Opacity)
+}
+
 // Sets a text block to the game's label style: LibreBaskerville Bold at a size, gold, with a 1 px dark outline.
 //
 // In:  Target - the text block (or LocTextBlock).

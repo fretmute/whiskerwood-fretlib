@@ -14,8 +14,11 @@ use /Game/Mods/Fretlib/Lib_1
 widget Pill: Border(BrushColor: "#00000000", Padding: Margin(Left: 4, Top: 2, Right: 4, Bottom: 2)) {
     widget Root: HorizontalBox {
         widget LeftLine: HR_HorizontalBallDivider slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center)
-        widget GroupArrowBox: SizeBox(WidthOverride: 14, HeightOverride: 14) slot(Padding: Margin(Left: 12, Top: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
-            widget GroupArrow: Image
+        widget GroupArrowBox: SizeBox(WidthOverride: 30, HeightOverride: 30) slot(Padding: Margin(Left: 12, Top: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center) {
+            widget GroupArrowLayers: Overlay {
+                widget GroupArrowShadow: Image
+                widget GroupArrow: Image
+            }
         }
         widget Name: LocTextBlock(Key: "", Justification: ETextJustify.Left) slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), Padding: Margin(Left: 10, Top: 6, Right: 6, Bottom: 6), VerticalAlignment: EVerticalAlignment.VAlign_Center)
         widget RightLine: HR_HorizontalBallDivider slot(Size: SlateChildSize(SizeRule: ESlateSizeRule.Fill, Value: 1.0), VerticalAlignment: EVerticalAlignment.VAlign_Center)
@@ -75,6 +78,10 @@ var MinusIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-minus-90.icons8-minus
 var PlusIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-plus-90.icons8-plus-90
 // The arrow icon for choices (pointing right; the left button shows it mirrored).
 var ArrowIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-play-100.icons8-play-100
+// The open/closed icon of a group heading (pointing down = open; turned to point right when closed).
+var GroupArrowIcon: soft<Texture2D> = /Game/Assets/Icons/icons8-chevron-down-100.icons8-chevron-down-100
+// How far the group chevron's shadow is drawn down and to the right, in pixels.
+var GroupShadowOffset: float = 2.0
 
 // The row's option.
 var Option: S_FL_ModOption
@@ -124,10 +131,15 @@ fn Show(NewOption: S_FL_ModOption, NewMenu: AC_FL_ModMenu) {
         RightLine.SetRenderTranslation(Vector2D(X: 0.0, Y: 3.0))
         Mark.SetVisibility(ESlateVisibility.Collapsed)
         ControlBox.SetVisibility(ESlateVisibility.Collapsed)
-        // The open/closed arrow before the name (the choices' arrow, gold: right when closed, down when open). The whole row
-        // takes the click (OnMouseButtonDown).
-        GroupArrow.SetBrushFromTexture(ArrowIcon.load(), false)
+        // The open/closed chevron before the name, nearly the row's height: gold over a dark copy offset down and right as
+        // its shadow (an Image has no shadow of its own). Down when open, right when closed. The whole row takes the click
+        // (OnMouseButtonDown).
+        let chevron = GroupArrowIcon.load()
+        GroupArrow.SetBrushFromTexture(chevron, false)
         GroupArrow.SetColorAndOpacity(BPL_FL_UI.Gold())
+        GroupArrowShadow.SetBrushFromTexture(chevron, false)
+        GroupArrowShadow.SetColorAndOpacity(BPL_FL_UI.Dark(0.9))
+        GroupArrowShadow.SetRenderTranslation(Vector2D(X: GroupShadowOffset, Y: GroupShadowOffset))
         GroupArrowBox.SetVisibility(ESlateVisibility.HitTestInvisible)
         SetGroupOpen(!Menu.IsGroupCollapsed(NewOption.ModId, NewOption.OptionId))
         SetVisibility(ESlateVisibility.Visible)
@@ -165,7 +177,11 @@ fn Show(NewOption: S_FL_ModOption, NewMenu: AC_FL_ModMenu) {
 // In:  Open - true when the group's options are shown.
 // Out: none
 fn SetGroupOpen(Open: bool) {
-    GroupArrow.SetRenderTransformAngle(if Open { 90.0 } else { 0.0 })
+    // The chevron points down; a quarter turn counterclockwise points it right. The shadow turns with it and keeps its
+    // offset (the render translation applies after the rotation).
+    let groupAngle = if Open { 0.0 } else { -90.0 }
+    GroupArrow.SetRenderTransformAngle(groupAngle)
+    GroupArrowShadow.SetRenderTransformAngle(groupAngle)
 }
 
 // Shows a row whose toggle belongs to the menu itself (e.g. "Show advanced options"), not to a mod's option: switching it
